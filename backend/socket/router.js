@@ -6,6 +6,7 @@ import pipelineController from "../controllers/pipeline/pipeline.controllers.js"
 import hrDashboardController from "../controllers/hr/hr.controller.js";
 import clientController from "../controllers/client/client.controllers.js";
 import activityController from "../controllers/activities/activities.controllers.js";
+import projectController from "../controllers/project/project.controller.js";
 import { ChatController } from "../controllers/chat/chat.controller.js";
 import { ChatUsersController } from "../controllers/chat/users.controller.js";
 
@@ -22,7 +23,7 @@ const router = (socket, io, role) => {
     userMetadata: socket.userMetadata,
   });
 
-  // Initialize chat controller for all authenticated users
+  
   if (socket.companyId) {
     console.log("Attaching chat controller...");
     new ChatController(socket, io);
@@ -52,10 +53,12 @@ const router = (socket, io, role) => {
       clientController(socket, io);
       console.log("Attaching activity controller for admin...");
       activityController(socket, io);
+      console.log("Attaching project controller for admin...");
+      projectController(socket, io);
       userSocketController(socket, io);
       console.log("Attaching social feed controller for admin...");
       socialFeedSocketController(socket, io);
-      // Pipelines JS
+      
       pipelineController(socket, io);
       break;
 
@@ -69,6 +72,8 @@ const router = (socket, io, role) => {
       clientController(socket, io);
       console.log("Attaching activity controller for hr...");
       activityController(socket, io);
+      console.log("Attaching project controller for hr...");
+      projectController(socket, io);
       userSocketController(socket, io);
       console.log("Attaching social feed controller for hr...");
       socialFeedSocketController(socket, io);
