@@ -3,18 +3,19 @@ import adminController from "../controllers/admin/admin.controller.js";
 import invoiceSocketController from "../controllers/invoice/invoice.socket.controller.js";
 import leadController from "../controllers/lead/lead.controller.js";
 import pipelineController from "../controllers/pipeline/pipeline.controllers.js";
-import hrDashboardController from "../controllers/hr/hr.controller.js";
 import clientController from "../controllers/client/client.controllers.js";
 import activityController from "../controllers/activities/activities.controllers.js";
 import projectController from "../controllers/project/project.controller.js";
 import taskController from "../controllers/task/task.controller.js";
 import projectNotesController from "../controllers/notes/project.notes.controller.js";
+
 import { ChatController } from "../controllers/chat/chat.controller.js";
 import { ChatUsersController } from "../controllers/chat/users.controller.js";
 
 import userSocketController from "../controllers/user/user.socket.controller.js";
 import socialFeedSocketController from "../controllers/socialfeed/socialFeed.socket.controller.js";
 import employeeController from "../controllers/employee/employee.controller.js";
+import notesController from "../controllers/employee/notes.controller.js";
 
 const router = (socket, io, role) => {
   console.log(`Setting up socket router for role: ${role}`);
@@ -66,6 +67,8 @@ const router = (socket, io, role) => {
       socialFeedSocketController(socket, io);
       
       pipelineController(socket, io);
+      console.log("Attaching admin notes controller...");
+      notesController(socket, io);
       break;
 
     case "hr":
@@ -87,6 +90,8 @@ const router = (socket, io, role) => {
       userSocketController(socket, io);
       console.log("Attaching social feed controller for hr...");
       socialFeedSocketController(socket, io);
+      console.log("Attaching hr notes controller...");
+      notesController(socket, io);
       break;
     case "leads":
       console.log("Attaching leads controller...");
