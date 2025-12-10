@@ -7,6 +7,8 @@ const uri =
 const client = new MongoClient(uri);
 let isConnected = false;
 
+export { client };
+
 export const connectDB = async () => {
   if (!isConnected) {
     try {
@@ -102,6 +104,7 @@ export const getTenantCollections = (tenantDbName) => {
     //profile collection
     profile: db.collection("profile"),
     tickets: db.collection("tickets"),
+    ticketCategories: db.collection("ticketCategories"),
     candidates: db.collection("candidates"),
   };
 };
