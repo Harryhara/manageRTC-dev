@@ -102,6 +102,8 @@ export const getTenantCollections = (tenantDbName) => {
     //profile collection
     profile: db.collection("profile"),
     tickets: db.collection("tickets"),
+    // jobs collection
+    jobs: db.collection("jobs"),
     candidates: db.collection("candidates"),
   };
 };

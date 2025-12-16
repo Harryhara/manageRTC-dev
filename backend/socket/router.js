@@ -16,6 +16,7 @@ import socialFeedSocketController from "../controllers/socialfeed/socialFeed.soc
 import employeeController from "../controllers/employee/employee.controller.js";
 import notesController from "../controllers/employee/notes.controller.js";
 import ticketsSocketController from "../controllers/tickets/tickets.socket.controller.js";
+import jobsSocketController from "../controllers/jobs/jobs.socket.controller.js";
 
 import jobsController from "../controllers/jobs/jobs.controllers.js";
 import candidateController from "../controllers/candidates/candidates.controllers.js";
