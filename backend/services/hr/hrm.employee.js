@@ -841,6 +841,65 @@ export const deleteEmployee = async (companyId, hrId = 1, employeeId) => {
   }
 };
 
+export const checkDuplicates = async (companyId, email, userName, phone = null) => {
+  try {
+    if (!companyId) {
+      return { done: false, error: "Missing companyId" };
+    }
+
+    const collections = getTenantCollections(companyId);
+
+    // Check for duplicate email
+    const emailExists = await collections.employees.countDocuments({
+      "contact.email": email,
+    });
+
+    if (emailExists) {
+      return {
+        done: false,
+        error: "Email already registered",
+        field: "email",
+      };
+    }
+
+    // Check for duplicate username
+    const userNameExists = await collections.employees.countDocuments({
+      "account.userName": userName,
+    });
+
+    if (userNameExists) {
+      return {
+        done: false,
+        error: "Username already exists",
+        field: "userName",
+      };
+    }
+
+    // Check for duplicate phone if provided
+    if (phone) {
+      const phoneExists = await collections.employees.countDocuments({
+        "contact.phone": phone,
+      });
+
+      if (phoneExists) {
+        return {
+          done: false,
+          error: "Phone number already registered",
+          field: "phone",
+        };
+      }
+    }
+
+    return { done: true };
+  } catch (error) {
+    console.error("Error checking duplicates:", error);
+    return {
+      done: false,
+      error: "Error checking for duplicates",
+    };
+  }
+};
+
 export const addEmployee = async (
   companyId,
   hrId,
@@ -891,15 +950,39 @@ export const addEmployee = async (
     //   return { done: false, error: "HR not found." };
     // }
 
-    // Check email uniqueness (phone is already validated in frontend via checkPhoneExists)
+    // Check email uniqueness (nested in contact)
     const emailExists = await collections.employees.countDocuments({
-      "contact.email": employeeData.contact.email
+      "contact.email": employeeData.contact.email,
     });
 
     if (emailExists) {
       return {
         done: false,
-        error: "Employee email already exists.",
+        error: "Email already registered",
+      };
+    }
+
+    // Check phone number uniqueness (nested in contact)
+    const phoneExists = await collections.employees.countDocuments({
+      "contact.phone": employeeData.contact.phone,
+    });
+
+    if (phoneExists) {
+      return {
+        done: false,
+        error: "Phone number already registered",
+      };
+    }
+
+    // Check username uniqueness
+    const userNameExists = await collections.employees.countDocuments({
+      "account.userName": employeeData.account.userName,
+    });
+
+    if (userNameExists) {
+      return {
+        done: false,
+        error: "Username already exists",
       };
     }
 

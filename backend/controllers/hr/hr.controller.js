@@ -73,10 +73,8 @@ const hrDashboardController = (socket, io) => {
       return "Employee data must be an object";
     }
 
+    // Required string fields - must be non-empty
     const requiredStringFields = [
-      "about",
-      "avatarUrl",
-      "companyName",
       "departmentId",
       "designationId",
       "employeeId",
@@ -90,6 +88,14 @@ const hrDashboardController = (socket, io) => {
       }
       if (typeof data[field] !== "string" || data[field].trim() === "") {
         return `Field '${field}' must be a non-empty string`;
+      }
+    }
+
+    // Optional string fields - only validate type if provided
+    const optionalStringFields = ["avatarUrl", "about", "companyName"];
+    for (const field of optionalStringFields) {
+      if (data[field] !== undefined && data[field] !== null && data[field] !== "" && typeof data[field] !== "string") {
+        return `Field '${field}' must be a string if provided`;
       }
     }
 
@@ -176,10 +182,9 @@ const hrDashboardController = (socket, io) => {
     if (typeof data !== "object" || data === null) {
       return "Employee data must be an object";
     }
+    
+    // Required string fields
     const requiredStringFields = [
-      "about",
-      "avatarUrl",
-      "companyName",
       "departmentId",
       "designationId",
       "employeeId",
@@ -193,6 +198,14 @@ const hrDashboardController = (socket, io) => {
       }
       if (typeof data[field] !== "string" || data[field].trim() === "") {
         return `Field '${field}' must be a non-empty string`;
+      }
+    }
+
+    // Optional string fields - only validate type if provided
+    const optionalStringFields = ["avatarUrl", "about", "companyName"];
+    for (const field of optionalStringFields) {
+      if (data[field] !== undefined && data[field] !== null && data[field] !== "" && typeof data[field] !== "string") {
+        return `Field '${field}' must be a string if provided`;
       }
     }
 
@@ -1037,6 +1050,110 @@ const hrDashboardController = (socket, io) => {
   });
 
   // crud ops on employee
+
+  // Check for duplicate email, username, and phone - called before moving to permissions tab
+  socket.on("hrm/employees/check-duplicates", async (data) => {
+    console.log("=== BACKEND: hrm/employees/check-duplicates called ===");
+    console.log("Received data:", data);
+    try {
+      const { companyId } = validateHrAccess(socket);
+      console.log("CompanyId:", companyId);
+      
+      if (!data || typeof data !== "object") {
+        throw new Error("Invalid request data");
+      }
+
+      const { email, userName, phone } = data;
+
+      if (!email || !userName) {
+        throw new Error("Email and username are required");
+      }
+
+      // Check for duplicates (email, username, and optionally phone)
+      console.log("Calling checkDuplicates service...");
+      const duplicateCheck = await hrmEmployee.checkDuplicates(companyId, email, userName, phone);
+      
+      console.log("=== BACKEND: Sending response ===", duplicateCheck);
+      socket.emit("hrm/employees/check-duplicates-response", duplicateCheck);
+    } catch (error) {
+      console.error("Error in hrm/employees/check-duplicates:", error);
+      const errorResponse = {
+        done: false,
+        error: error.message || "Error checking for duplicates",
+      };
+      console.log("=== BACKEND: Sending error response ===", errorResponse);
+      socket.emit("hrm/employees/check-duplicates-response", errorResponse);
+    }
+  });
+
+  // Validate employee data without saving - for inline error display
+  socket.on("hrm/employees/validate", async (data) => {
+    console.log("=== hrm/employees/validate called ===");
+    console.log("Received data:", JSON.stringify(data, null, 2));
+    try {
+      const { companyId, hrId } = validateHrAccess(socket);
+      console.log("Access validated - companyId:", companyId, "hrId:", hrId);
+      
+      if (!data) {
+        throw new Error("Employee data is required");
+      }
+      const { employeeData, permissionsData } = data;
+      if (!employeeData || typeof employeeData !== "object") {
+        throw new Error("Invalid or missing employeeData");
+      }
+      if (!permissionsData || typeof permissionsData !== "object") {
+        throw new Error("Invalid or missing permissionsData");
+      }
+
+      // Merge enabledModules & permissions into employeeData for validation
+      const mergedData = {
+        ...employeeData,
+        enabledModules: permissionsData.enabledModules,
+        permissions: permissionsData.permissions,
+      };
+
+      console.log("Running validateEmployeeData...");
+      const validationError = validateEmployeeData(mergedData);
+      console.log("Validation result:", validationError || "PASSED");
+
+      if (validationError) {
+        // Return validation error with field information
+        console.log("Emitting validation error response");
+        socket.emit("hrm/employees/validate-response", {
+          done: false,
+          error: validationError,
+        });
+        return;
+      }
+
+      // Check for duplicate email/username in the database
+      console.log("Checking for duplicates...");
+      const duplicateCheck = await hrmEmployee.checkDuplicates(
+        companyId,
+        employeeData.contact.email,
+        employeeData.account.userName
+      );
+      console.log("Duplicate check result:", duplicateCheck);
+
+      if (!duplicateCheck.done) {
+        socket.emit("hrm/employees/validate-response", duplicateCheck);
+        return;
+      }
+
+      // Validation passed
+      console.log("Emitting validation success response");
+      socket.emit("hrm/employees/validate-response", {
+        done: true,
+        message: "Validation passed",
+      });
+    } catch (error) {
+      console.log("Error in hrm/employees/validate:", error);
+      socket.emit("hrm/employees/validate-response", {
+        done: false,
+        error: error.message || "Unexpected error validating employee",
+      });
+    }
+  });
 
   socket.on(
     "hrm/employees/add",

@@ -87,6 +87,13 @@ const generateId = (prefix: string): string => {
   return `${prefix}-${paddedNum}`;
 };
 
+// Normalize status to ensure correct case (Active or Inactive)
+const normalizeStatus = (status: string | undefined): "Active" | "Inactive" => {
+  if (!status) return "Active";
+  const normalized = status.toLowerCase();
+  return normalized === "inactive" ? "Inactive" : "Active";
+};
+
 // Type definitions
 type PasswordField = "password" | "confirmPassword";
 type PermissionAction =
@@ -228,10 +235,13 @@ const EmployeeList = () => {
   const navigate = useNavigate();
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isValidating, setIsValidating] = useState(false);
   const [activeTab, setActiveTab] = useState("basic-info");
   const [responseData, setResponseData] = useState(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [imageUpload, setImageUpload] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [isBasicInfoValidated, setIsBasicInfoValidated] = useState(false);
   const [department, setDepartment] = useState<Option[]>([]);
   const [designation, setDesignation] = useState<Option[]>([]);
   const [allDesignations, setAllDesignations] = useState<Option[]>([]);
@@ -332,11 +342,14 @@ const EmployeeList = () => {
       if (response.done) {
         setResponseData(response.data);
         setError(null);
+        setFieldErrors({});
         setLoading(false);
         
         // Close the add employee modal
         if (addEmployeeModalRef.current) {
           addEmployeeModalRef.current.click();
+          // Clean up backdrop
+          setTimeout(() => closeModal(), 100);
         }
         
         // Store the newly added employee data
@@ -351,6 +364,8 @@ const EmployeeList = () => {
         setTimeout(() => {
           if (successModalRef.current) {
             successModalRef.current.click();
+            // Ensure previous modal backdrop is removed
+            closeModal();
           }
         }, 300);
         
@@ -359,12 +374,34 @@ const EmployeeList = () => {
           socket.emit("hrm/employees/get-employee-stats");
         }
       } else {
-        setError(response.error || "Failed to add employee");
         setLoading(false);
-        toast.error(response.error || "Failed to add employee", {
-          position: "top-right",
-          autoClose: 3000,
-        });
+        
+        // Parse error and set inline field error
+        const errorInfo = parseBackendError(response.error || "Failed to add employee");
+        if (errorInfo) {
+          setFieldErrors({ [errorInfo.field]: errorInfo.message });
+          
+          // If error is for a basic field, switch to basic info tab, reset validation, and scroll
+          const basicFields = ['firstName', 'lastName', 'email', 'userName', 'password', 'phone', 'departmentId', 'designationId', 'dateOfJoining'];
+          if (basicFields.includes(errorInfo.field) || errorInfo.field === 'general') {
+            setActiveTab("basic-info");
+            setIsBasicInfoValidated(false); // Reset validation flag
+            setTimeout(() => {
+              const errorElement = document.querySelector(`[name="${errorInfo.field}"]`) || 
+                                  document.querySelector(`#${errorInfo.field}`) ||
+                                  document.querySelector('.is-invalid');
+              if (errorElement) {
+                errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                (errorElement as HTMLElement).focus?.();
+              }
+            }, 100);
+          }
+        } else {
+          setFieldErrors({ general: response.error || "Failed to add employee" });
+        }
+        
+        setError(response.error || "Failed to add employee");
+        // No toast - error shown inline only
       }
     };
 
@@ -429,7 +466,12 @@ const EmployeeList = () => {
           setStats(response.data.stats);
         }
         if (Array.isArray(response.data.employees)) {
-          setEmployees(response.data.employees);
+          // Normalize status for all employees to ensure correct case
+          const normalizedEmployees = response.data.employees.map((emp: Employee) => ({
+            ...emp,
+            status: normalizeStatus(emp.status)
+          }));
+          setEmployees(normalizedEmployees);
         }
         setError(null);
         setLoading(false);
@@ -471,6 +513,8 @@ const EmployeeList = () => {
         // Close the modal
         if (editEmployeeModalRef.current) {
           editEmployeeModalRef.current.click();
+          // Clean up backdrop
+          setTimeout(() => closeModal(), 100);
         }
         
         toast.success("Employee updated successfully!", {
@@ -591,6 +635,33 @@ const EmployeeList = () => {
     }
   }, [editingEmployee]);
 
+  // Clean up modal backdrops on component unmount or when activeTab changes
+  useEffect(() => {
+    return () => {
+      // Cleanup on unmount
+      closeModal();
+    };
+  }, []);
+
+  // Also clean up backdrops whenever modals might have closed
+  useEffect(() => {
+    const handleModalHidden = () => {
+      setTimeout(() => closeModal(), 100);
+    };
+
+    // Listen for Bootstrap modal hidden events
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+      modal.addEventListener('hidden.bs.modal', handleModalHidden);
+    });
+
+    return () => {
+      modals.forEach(modal => {
+        modal.removeEventListener('hidden.bs.modal', handleModalHidden);
+      });
+    };
+  }, []);
+
   const data = employee_list_details;
   const columns = [
     {
@@ -599,7 +670,7 @@ const EmployeeList = () => {
       render: (text: String, record: any) => (
         <Link to={`/employees/${record._id}`}>{text}</Link>
       ),
-      sorter: (a: any, b: any) => a.EmpId.length - b.EmpId.length,
+      sorter: (a: any, b: any) => (a.employeeId || "").length - (b.employeeId || "").length,
     },
     {
       title: "Name",
@@ -625,24 +696,24 @@ const EmployeeList = () => {
           </div>
         );
       },
-      sorter: (a: any, b: any) => a.Name.length - b.Name.length,
+      sorter: (a: any, b: any) => (a.firstName || "").localeCompare(b.firstName || ""),
     },
     {
       title: "Email",
       dataIndex: ["contact", "email"],
-      sorter: (a: any, b: any) => a.Email.length - b.Email.length,
+      sorter: (a: any, b: any) => (a.contact?.email || "").localeCompare(b.contact?.email || ""),
     },
     {
       title: "Phone",
       dataIndex: ["contact", "phone"],
-      sorter: (a: any, b: any) => a.Phone.length - b.Phone.length,
+      sorter: (a: any, b: any) => (a.contact?.phone || "").localeCompare(b.contact?.phone || ""),
     },
     {
       title: "Department",
       dataIndex: "departmentId",
       render: (text: string, record: any) =>
         department.find((dep) => dep.value === record.departmentId)?.label,
-      sorter: (a: any, b: any) => a.Designation.length - b.Designation.length,
+      sorter: (a: any, b: any) => (a.departmentId || "").localeCompare(b.departmentId || ""),
     },
     {
       title: "Joining Date",
@@ -666,7 +737,7 @@ const EmployeeList = () => {
       render: (text: string, record: any) => (
         <span
           className={`badge ${
-            text === "active" || text === "Active"
+            text === "Active"
               ? "badge-success"
               : "badge-danger"
           } d-inline-flex align-items-center badge-xs`}
@@ -675,13 +746,14 @@ const EmployeeList = () => {
           {text}
         </span>
       ),
-      sorter: (a: any, b: any) => a.Status.length - b.Status.length,
+      sorter: (a: any, b: any) => (a.status || "").localeCompare(b.status || ""),
     },
     {
       title: "",
       dataIndex: "actions",
+      key: "actions",
       render: (_test: any, employee: Employee) => (
-        <div className="action-icon d-inline-flex">
+        <div className="action-icon d-inline-flex" key={`actions-${employee._id}`}>
           <Link
             to="#"
             className="me-2"
@@ -1157,127 +1229,198 @@ const EmployeeList = () => {
   // FORM SUBMISSION
   // ======================
 
-  // Check if phone number already exists
-  const checkPhoneExists = async (phone: string, excludeEmployeeId?: string): Promise<boolean> => {
-    return new Promise((resolve) => {
-      if (!socket) {
-        toast.error("Socket connection is not available", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-        resolve(false);
-        return;
-      }
+  // Parse backend error message and map to field name
+  const parseBackendError = (errorMessage: string): { field: string; message: string } | null => {
+    const errorMap: Record<string, { field: string; message: string }> = {
+      "Field 'about' must be a non-empty string": { field: "about", message: "About is required" },
+      "Field 'about' must be a string if provided": { field: "about", message: "About must be text" },
+      "Field 'departmentId' must be a non-empty string": { field: "departmentId", message: "Please select a department" },
+      "Field 'designationId' must be a non-empty string": { field: "designationId", message: "Please select a designation" },
+      "Field 'employeeId' must be a non-empty string": { field: "employeeId", message: "Employee ID is required" },
+      "Field 'firstName' must be a non-empty string": { field: "firstName", message: "First name is required" },
+      "Field 'lastName' must be a non-empty string": { field: "lastName", message: "Last name is required" },
+      "Missing required field: account": { field: "general", message: "Account information is required" },
+      "Field 'account.userName' must be a non-empty string": { field: "userName", message: "Username is required" },
+      "Field 'account.password' must be a non-empty string": { field: "password", message: "Password is required" },
+      "Missing required field: contact": { field: "general", message: "Contact information is required" },
+      "Field 'contact.email' must be a non-empty string": { field: "email", message: "Email is required" },
+      "Field 'contact.phone' must be a non-empty string": { field: "phone", message: "Phone is required" },
+      "Missing required field: dateOfJoining": { field: "dateOfJoining", message: "Joining date is required" },
+      "dateOfJoining must be a string, Date object, or valid date wrapper": { field: "dateOfJoining", message: "Invalid joining date" },
+      "Email already registered": { field: "email", message: "This email is already registered" },
+      "Username already exists": { field: "userName", message: "This username is already taken" },
+      "Phone number already registered": { field: "phone", message: "This phone number is already registered" },
+      "Employee email or phone number already exists.": { field: "email", message: "Email or phone already exists" },
+      "Employee with same details already exists": { field: "general", message: "Employee with same details already exists" },
+      "Failed to add employee": { field: "general", message: "Failed to add employee. Please try again." },
+    };
 
-      setPhoneCheckLoading(true);
-      setPhoneExists(null);
+    // Direct match
+    if (errorMap[errorMessage]) {
+      return errorMap[errorMessage];
+    }
 
-      // Set up a one-time listener for the response
-      const handleResponse = (response: any) => {
-        setPhoneCheckLoading(false);
-        
-        if (response.done && !response.exists) {
-          setPhoneExists(false);
-          resolve(true); // Phone is available
-        } else if (response.exists) {
-          setPhoneExists(true);
-          toast.error(response.error || "Phone number already exists", {
-            position: "top-right",
-            autoClose: 4000,
-          });
-          resolve(false); // Phone exists
-        } else {
-          toast.error(response.error || "Failed to check phone number", {
-            position: "top-right",
-            autoClose: 3000,
-          });
-          resolve(false); // Error occurred
-        }
-        
-        // Clean up the listener
-        socket.off("hrm/employees/check-phone-response", handleResponse);
-      };
+    // Pattern matching for field errors
+    const fieldMatch = errorMessage.match(/Field '(.+?)' must be/);
+    if (fieldMatch) {
+      const fieldPath = fieldMatch[1];
+      // Extract last part of nested field (e.g., 'account.userName' -> 'userName')
+      const fieldName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
+      return { field: fieldName, message: errorMessage };
+    }
 
-      socket.on("hrm/employees/check-phone-response", handleResponse);
-      
-      // Emit the check request
-      socket.emit("hrm/employees/check-phone", {
-        phone,
-        excludeEmployeeId,
-      });
+    // Pattern matching for missing fields
+    const missingMatch = errorMessage.match(/Missing required field: (.+)/);
+    if (missingMatch) {
+      const fieldPath = missingMatch[1];
+      const fieldName = fieldPath.includes('.') ? fieldPath.split('.').pop()! : fieldPath;
+      return { field: fieldName, message: `${fieldName} is required` };
+    }
 
-      // Set a timeout to prevent hanging
-      // setTimeout(() => {
-      //   socket.off("hrm/employees/check-phone-response", handleResponse);
-      //   setPhoneCheckLoading(false);
-      //   toast.error("Phone check timeout. Please try again.", {
-      //     position: "top-right",
-      //     autoClose: 3000,
-      //   });
-      //   resolve(false);
-      // }, 10000);
+    return { field: "general", message: errorMessage };
+  };
+
+  // Validate a single field and return error message
+  const validateField = (fieldName: string, value: any): string => {
+    switch (fieldName) {
+      case "firstName":
+        if (!value || !value.trim()) return "First name is required";
+        break;
+      case "lastName":
+        if (!value || !value.trim()) return "Last name is required";
+        break;
+      case "email":
+        if (!value || !value.trim()) return "Email is required";
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(value)) return "Enter a valid email";
+        break;
+      case "userName":
+        if (!value || !value.trim()) return "Username is required";
+        break;
+      case "password":
+        if (!value || !value.trim()) return "Password is required";
+        if (value.length < 6) return "Password must be at least 6 characters";
+        break;
+      case "confirmPassword":
+        if (!value || !value.trim()) return "Confirm password is required";
+        if (formData.account.password !== value) return "Passwords don't match";
+        break;
+      case "phone":
+        if (!value || !value.trim()) return "Phone number is required";
+        if (!/^\d{10,15}$/.test(value.replace(/[\s\-\(\)]/g, ''))) return "Enter a valid phone number";
+        break;
+      case "gender":
+        if (!value) return "Gender is required";
+        break;
+      case "birthday":
+        if (!value) return "Birthday is required";
+        break;
+      case "dateOfJoining":
+        if (!value) return "Joining date is required";
+        break;
+    }
+    return "";
+  };
+
+  // Validate a field on blur
+  const handleFieldBlur = (fieldName: string, value: any) => {
+    const error = validateField(fieldName, value);
+    setFieldErrors(prev => ({
+      ...prev,
+      [fieldName]: error
+    }));
+  };
+
+  // Clear field error when user starts typing
+  const clearFieldError = (fieldName: string) => {
+    setFieldErrors(prev => {
+      const newErrors = { ...prev };
+      delete newErrors[fieldName];
+      return newErrors;
     });
   };
 
-  // Validate form before submission
-  const validateForm = async (): Promise<boolean> => {
-    // Check required fields
-    if (!formData.firstName) {
-      toast.error("Please fill in first name", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
-    }
-    if (!formData.contact.email) {
-      toast.error("Please fill in email", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
-    }
-    if (!formData.account.userName) {
-      toast.error("Please fill in username", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
-    }
-    if (!formData.account.password) {
-      toast.error("Please fill in password", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
-    }
-    if (!formData.contact.phone) {
-      toast.error("Please fill in phone", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
-    }
-    if (!formData.personal?.gender) {
-      toast.error("Please select gender", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
-    }
-    if (!formData.personal?.birthday) {
-      toast.error("Please select birthday", {
-        position: "top-right",
-        autoClose: 3000,
-      });
-      return false;
+  // Validate form before submission - matches backend validation
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {};
+
+    // Required fields (must match backend requiredStringFields)
+    if (!formData.firstName || !formData.firstName.trim()) {
+      errors.firstName = "First name is required";
     }
 
-    // Check password match
-    if (formData.account.password !== confirmPassword) {
-      toast.error("Passwords don't match!", {
-        position: "top-right",
-        autoClose: 3000,
-      });
+    if (!formData.lastName || !formData.lastName.trim()) {
+      errors.lastName = "Last name is required";
+    }
+
+    if (!formData.departmentId || !formData.departmentId.trim()) {
+      errors.departmentId = "Department is required";
+    }
+
+    if (!formData.designationId || !formData.designationId.trim()) {
+      errors.designationId = "Designation is required";
+    }
+
+    // Account fields (required by backend)
+    if (!formData.account.userName || !formData.account.userName.trim()) {
+      errors.userName = "Username is required";
+    }
+
+    if (!formData.account.password || !formData.account.password.trim()) {
+      errors.password = "Password is required";
+    } else if (formData.account.password.length < 6) {
+      errors.password = "Password must be at least 6 characters";
+    }
+
+    if (!confirmPassword || !confirmPassword.trim()) {
+      errors.confirmPassword = "Confirm password is required";
+    } else if (formData.account.password !== confirmPassword) {
+      errors.confirmPassword = "Passwords don't match";
+    }
+
+    // Contact fields (required by backend)
+    if (!formData.contact.email || !formData.contact.email.trim()) {
+      errors.email = "Email is required";
+    } else {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(formData.contact.email)) {
+        errors.email = "Enter a valid email";
+      }
+    }
+
+    if (!formData.contact.phone || !formData.contact.phone.trim()) {
+      errors.phone = "Phone number is required";
+    } else if (!/^\d{10,15}$/.test(formData.contact.phone.replace(/[\s\-\(\)]/g, ''))) {
+      errors.phone = "Enter a valid phone number";
+    }
+
+    // Date of joining (required by backend)
+    if (!formData.dateOfJoining) {
+      errors.dateOfJoining = "Joining date is required";
+    }
+
+    // Optional frontend validations (nice to have but not backend required)
+    // Gender and Birthday are optional in backend but good UX to require
+
+    // Set errors in state
+    setFieldErrors(errors);
+
+    // If there are errors, scroll to first error field
+    if (Object.keys(errors).length > 0) {
+      setActiveTab("basic-info");
+      
+      // Scroll to first error field after a short delay to allow tab switch
+      setTimeout(() => {
+        const firstErrorField = Object.keys(errors)[0];
+        const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
+                            document.querySelector(`#${firstErrorField}`) ||
+                            document.querySelector(`.field-${firstErrorField}`);
+        if (errorElement) {
+          errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          (errorElement as HTMLElement).focus?.();
+        }
+      }, 100);
+      
       return false;
     }
 
@@ -1378,34 +1521,16 @@ const EmployeeList = () => {
     return true;
   };
 
-  // Handle form submission
+  // Handle form submission (final save - validation already done in handleNext)
   const handleSubmit = async (e: React.FormEvent) => {
     console.log("Submitting form and permissions");
+    e.preventDefault();
+
     try {
-      e.preventDefault();
-
-      setError("null");
-
-      const isValid = await validateForm();
-      if (!isValid) {
-        return;
-      }
-
-      // Optional: Check if at least one module is enabled (made optional for flexibility)
-      const anyModuleEnabled = Object.values(permissions.enabledModules).some(
-        Boolean
-      );
-      if (!anyModuleEnabled) {
-        console.warn("No permissions enabled for this employee");
-        // Optionally uncomment below to make permissions mandatory:
-        // toast.error("Please enable at least one module before saving.", {
-        //   position: "top-right",
-        //   autoClose: 3000,
-        // });
-        // return;
-      }
+      setError(null);
       setLoading(true);
-      // Extract basic info fields separately
+
+      // Extract basic info fields
       const {
         employeeId,
         avatarUrl,
@@ -1428,14 +1553,8 @@ const EmployeeList = () => {
         firstName,
         lastName,
         dateOfJoining,
-        account: {
-          userName,
-          password,
-        },
-        contact: {
-          email,
-          phone,
-        },
+        account: { userName, password },
+        contact: { email, phone },
         personal: {
           gender: personal?.gender || "",
           birthday: personal?.birthday || null,
@@ -1465,20 +1584,21 @@ const EmployeeList = () => {
 
       console.log("Full Submission Data:", submissionData);
 
-      if (socket) {
-        socket.emit("hrm/employees/add", submissionData);
-        handleResetFormData();
-        setActiveTab("basic-info");
-      } else {
+      if (!socket) {
         console.log("Socket connection is not available");
         setError("Socket connection is not available.");
         setLoading(false);
+        return;
       }
+
+      // Directly save - validation already done in handleNext
+      socket.emit("hrm/employees/add", submissionData);
+      
     } catch (error) {
       console.error("Error submitting form and permissions:", error);
       setError("An error occurred while submitting data.");
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   // 1. Update basic info
@@ -1516,7 +1636,7 @@ const EmployeeList = () => {
       dateOfJoining: editingEmployee.dateOfJoining || null,
       about: editingEmployee.about || "",
       avatarUrl: editingEmployee.avatarUrl || "",
-      status: editingEmployee.status || "Active",
+      status: normalizeStatus(editingEmployee.status),
     };
     console.log("update payload", payload);
 
@@ -1593,6 +1713,9 @@ const EmployeeList = () => {
 
     setPermissions(initialState);
     setError("");
+    setFieldErrors({});
+    setConfirmPassword("");
+    setIsBasicInfoValidated(false);
   };
 
   // Helper function to safely prepare employee for editing
@@ -1619,7 +1742,7 @@ const EmployeeList = () => {
       designationId: emp.designationId || "",
       about: emp.about || "",
       avatarUrl: emp.avatarUrl || "",
-      status: emp.status || "Active",
+      status: normalizeStatus(emp.status),
       dateOfJoining: emp.dateOfJoining || null,
     };
   };
@@ -1630,19 +1753,144 @@ const EmployeeList = () => {
     return modalElement ? modalElement : document.body;
   };
 
+  // Utility function to properly close modal and remove backdrop
+  const closeModal = () => {
+    // Remove all modal backdrops
+    const backdrops = document.querySelectorAll('.modal-backdrop');
+    backdrops.forEach(backdrop => backdrop.remove());
+    
+    // Remove modal-open class from body
+    document.body.classList.remove('modal-open');
+    
+    // Reset body style
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+  };
+
+  // Handle "Save and Next" - validate with backend before going to permissions tab
   const handleNext = async (e: React.FormEvent) => {
     e.preventDefault();
     console.log("Validating form before moving to permissions tab");
 
-    const isValid = await validateForm();
-    if (!isValid) {
-      console.log("Form validation failed, staying on current tab");
+    // Clear previous errors
+    setFieldErrors({});
+    setError(null);
+
+    // First run frontend validation (fast, synchronous)
+    if (!validateForm()) {
       return;
     }
 
-    // Switch to permissions tab only if validation passes
-    console.log("Form validation passed, moving to permissions tab");
-    setActiveTab("address");
+    // Check if socket is available
+    if (!socket) {
+      setFieldErrors({ general: "Connection unavailable. Please refresh the page." });
+      return;
+    }
+
+    // Show validating state
+    setIsValidating(true);
+
+    // Check for duplicate email, phone, and username with backend
+    try {
+      // Create a promise to wait for backend response
+      const checkDuplicates = new Promise<{ done: boolean; error?: string; field?: string }>((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error("timeout"));
+        }, 15000); // 15 second timeout
+
+        // Listen for duplicate check response
+        const responseHandler = (response: any) => {
+          console.log("=== FRONTEND: Received response from backend ===", response);
+          clearTimeout(timeoutId);
+          resolve(response);
+        };
+        
+        socket.once("hrm/employees/check-duplicates-response", responseHandler);
+
+        // Emit duplicate check request
+        const requestData = {
+          email: formData.contact.email,
+          userName: formData.account.userName,
+          phone: formData.contact.phone,
+        };
+        
+        console.log("=== FRONTEND: Emitting check-duplicates ===", requestData);
+        
+        socket.emit("hrm/employees/check-duplicates", requestData);
+      });
+
+      const result = await checkDuplicates;
+      setIsValidating(false);
+
+      console.log("Check duplicates result:", result);
+
+      if (!result.done) {
+        // Duplicate found - backend returns field and error
+        const fieldName = result.field || "general";
+        const errorMessage = result.error || "Validation failed";
+        
+        console.log("Setting field error:", fieldName, errorMessage);
+        
+        // Use parseBackendError to get user-friendly message
+        const errorInfo = parseBackendError(errorMessage);
+        
+        if (errorInfo && errorInfo.field !== "general") {
+          // Set error for specific field
+          setFieldErrors(prev => ({
+            ...prev,
+            [errorInfo.field]: errorInfo.message
+          }));
+          
+          // Also show toast as backup
+          toast.error(errorInfo.message, {
+            position: "top-right",
+            autoClose: 5000,
+          });
+          
+          // Scroll to error field
+          setTimeout(() => {
+            const errorElement = document.querySelector(`[name="${errorInfo.field}"]`) || 
+                                document.querySelector(`#${errorInfo.field}`) ||
+                                document.querySelector('.is-invalid');
+            if (errorElement) {
+              errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              (errorElement as HTMLElement).focus?.();
+            }
+          }, 100);
+        } else {
+          // General error
+          setFieldErrors({ general: errorMessage });
+          toast.error(errorMessage, {
+            position: "top-right",
+            autoClose: 5000,
+          });
+        }
+        
+        return; // Don't proceed to next tab
+      }
+
+      // All validation passed - mark as validated and proceed to permissions tab
+      setIsBasicInfoValidated(true);
+      setActiveTab("address");
+    } catch (error: any) {
+      console.error("Validation error:", error);
+      setIsValidating(false);
+      if (error.message === "timeout") {
+        const errorMsg = "Validation is taking longer than expected. Please check your connection and try again.";
+        setFieldErrors({ general: errorMsg });
+        toast.error(errorMsg, {
+          position: "top-right",
+          autoClose: 5000,
+        });
+      } else {
+        const errorMsg = "Unable to validate. Please try again.";
+        setFieldErrors({ general: errorMsg });
+        toast.error(errorMsg, {
+          position: "top-right",
+          autoClose: 5000,
+        });
+      }
+    }
   };
 
   const allPermissionsSelected = () => {
@@ -1668,7 +1916,7 @@ const EmployeeList = () => {
     );
   }
 
-  if (error) {
+  if (error && error !== "null") {
     return (
       <div className="page-wrapper">
         <div className="content">
@@ -1683,6 +1931,16 @@ const EmployeeList = () => {
 
   return (
     <>
+      <style>{`
+        .nav-link.disabled {
+          opacity: 0.5;
+          cursor: not-allowed !important;
+          pointer-events: all !important;
+        }
+        .nav-link.disabled:hover {
+          background-color: transparent !important;
+        }
+      `}</style>
       {/* Page Wrapper */}
       <div className="page-wrapper">
         <div className="content">
@@ -1834,7 +2092,7 @@ const EmployeeList = () => {
                     </div>
                     <div className="ms-2 overflow-hidden">
                       <p className="fs-12 fw-medium mb-1 text-truncate">
-                        InActive
+                        Inactive
                       </p>
                       <h4>{stats?.inactiveCount}</h4>
                     </div>
@@ -1894,10 +2152,11 @@ const EmployeeList = () => {
                 
                 {/* Department Filter - Dropdown */}
                 <div className="dropdown me-3">
-                  <Link
-                    to="#"
+                  <a
+                    href="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
+                    onClick={(e) => e.preventDefault()}
                   >
                     Department
                     {selectedDepartment
@@ -1907,7 +2166,7 @@ const EmployeeList = () => {
                           )?.label || "None"
                         }`
                       : ": All"}
-                  </Link>
+                  </a>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
                       <Link
@@ -1948,10 +2207,11 @@ const EmployeeList = () => {
 
                 {/* Status Filter - Dropdown */}
                 <div className="dropdown me-3">
-                  <Link
-                    to="#"
+                  <a
+                    href="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
+                    onClick={(e) => e.preventDefault()}
                   >
                     Status
                     {selectedStatus
@@ -1960,7 +2220,7 @@ const EmployeeList = () => {
                           selectedStatus.slice(1)
                         }`
                       : ": All"}
-                  </Link>
+                  </a>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
                       <Link
@@ -1979,13 +2239,8 @@ const EmployeeList = () => {
                     <li>
                       <Link
                         to="#"
-                        className={`dropdown-item rounded-1${
-                          selectedStatus === "active" ? " bg-primary text-white" : ""
-                        }`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onSelectStatus("active");
-                        }}
+                        className="dropdown-item rounded-1"
+                        onClick={() => onSelectStatus("Active")}
                       >
                         Active
                       </Link>
@@ -1993,13 +2248,8 @@ const EmployeeList = () => {
                     <li>
                       <Link
                         to="#"
-                        className={`dropdown-item rounded-1${
-                          selectedStatus === "inactive" ? " bg-primary text-white" : ""
-                        }`}
-                        onClick={(e) => {
-                          e.preventDefault();
-                          onSelectStatus("inactive");
-                        }}
+                        className="dropdown-item rounded-1"
+                        onClick={() => onSelectStatus("Inactive")}
                       >
                         Inactive
                       </Link>
@@ -2009,10 +2259,11 @@ const EmployeeList = () => {
 
                 {/* Sort Filter - Dropdown */}
                 <div className="dropdown me-3">
-                  <Link
-                    to="#"
+                  <a
+                    href="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
+                    onClick={(e) => e.preventDefault()}
                   >
                     Sort By
                     {sortOrder
@@ -2020,7 +2271,7 @@ const EmployeeList = () => {
                           sortOrder.charAt(0).toUpperCase() + sortOrder.slice(1)
                         }`
                       : ": Default"}
-                  </Link>
+                  </a>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
                       <Link
@@ -2093,7 +2344,7 @@ const EmployeeList = () => {
               // GRID VIEW
               <div className="card-body p-0">
               {/* Clients Grid */}
-              <div className="row">
+              <div className="row mt-4">
                 {employees.length === 0 ? (
                   <p className="text-center">No employees found</p>
                 ) : (
@@ -2103,9 +2354,9 @@ const EmployeeList = () => {
                       firstName,
                       lastName,
                       role,
-                      totalProjects = 0,
-                      completedProjects = 0,
-                      productivity = 0,
+                      employeeId,
+                      contact,
+                      departmentId,
                       status,
                       avatarUrl,
                     } = emp;
@@ -2113,8 +2364,6 @@ const EmployeeList = () => {
                     const fullName =
                       `${firstName || ""} ${lastName || ""}`.trim() ||
                       "Unknown Name";
-                    const progressPercent = Math.round(productivity);
-                    const progressBarColor = "bg-primary";
 
                     return (
                       <div key={_id} className="col-xl-3 col-lg-4 col-md-6 mb-4">
@@ -2221,42 +2470,41 @@ const EmployeeList = () => {
                                 {role || "employee"}
                               </span>
                             </div>
-                            <div className="row text-center">
-                              <div className="col-4">
-                                <div className="mb-3">
-                                  <span className="fs-12">Projects</span>
-                                  <h6 className="fw-medium">{totalProjects}</h6>
-                                </div>
+                            {/* Employee Details */}
+                            <div className="mb-3">
+                              <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span className="text-muted fs-12">Emp ID</span>
+                                <span className="fw-medium fs-13">{employeeId || "-"}</span>
                               </div>
-                              <div className="col-4">
-                                <div className="mb-3">
-                                  <span className="fs-12">Done</span>
-                                  <h6 className="fw-medium">
-                                    {completedProjects}
-                                  </h6>
-                                </div>
+                              <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span className="text-muted fs-12">Email</span>
+                                <span className="fw-medium fs-13 text-truncate" style={{ maxWidth: "150px" }} title={contact?.email || "-"}>
+                                  {contact?.email || "-"}
+                                </span>
                               </div>
-                              <div className="col-4">
-                                <div className="mb-3">
-                                  <span className="fs-12">Progress</span>
-                                  <h6 className="fw-medium">
-                                    {totalProjects - completedProjects}
-                                  </h6>
-                                </div>
+                              <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span className="text-muted fs-12">Phone</span>
+                                <span className="fw-medium fs-13">{contact?.phone || "-"}</span>
                               </div>
-                            </div>
-                            <p className="mb-2 text-center">
-                              Productivity :{" "}
-                              <span className="text-primary">
-                                {progressPercent}%
-                              </span>
-                            </p>
-                            <div className="progress progress-xs mb-2">
-                              <div
-                                className={`progress-bar ${progressBarColor}`}
-                                role="progressbar"
-                                style={{ width: `${progressPercent}%` }}
-                              />
+                              <div className="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom">
+                                <span className="text-muted fs-12">Department</span>
+                                <span className="fw-medium fs-13">
+                                  {department.find((dep) => dep.value === departmentId)?.label || "-"}
+                                </span>
+                              </div>
+                              <div className="d-flex justify-content-between align-items-center">
+                                <span className="text-muted fs-12">Status</span>
+                                <span
+                                  className={`badge ${
+                                    status === "Active"
+                                      ? "badge-success"
+                                      : "badge-danger"
+                                  } d-inline-flex align-items-center badge-xs`}
+                                >
+                                  <i className="ti ti-point-filled me-1" />
+                                  {status}
+                                </span>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -2291,6 +2539,7 @@ const EmployeeList = () => {
                 onClick={() => {
                   handleResetFormData();
                   setActiveTab("basic-info");
+                  setTimeout(() => closeModal(), 100);
                 }}
               >
                 <i className="ti ti-x" />
@@ -2326,14 +2575,48 @@ const EmployeeList = () => {
                     <button
                       className={`nav-link ${
                         activeTab === "address" ? "active" : ""
-                      }`}
-                      onClick={() => setActiveTab("address")}
+                      } ${!isBasicInfoValidated ? "disabled" : ""}`}
+                      onClick={(e) => {
+                        // Prevent access to permissions tab until basic info is validated
+                        if (!isBasicInfoValidated) {
+                          e.preventDefault();
+                          toast.info("Please complete and validate basic information first", {
+                            position: "top-right",
+                            autoClose: 3000,
+                          });
+                          return;
+                        }
+                        
+                        // Check if basic info tab has any errors
+                        const basicInfoFields = ['firstName', 'lastName', 'email', 'userName', 'password', 'confirmPassword', 'phone', 'departmentId', 'designationId', 'dateOfJoining'];
+                        const hasBasicInfoErrors = basicInfoFields.some(field => fieldErrors[field]);
+                        
+                        if (hasBasicInfoErrors) {
+                          e.preventDefault();
+                          // Scroll to first error field instead of toast
+                          setTimeout(() => {
+                            const firstErrorField = basicInfoFields.find(field => fieldErrors[field]);
+                            if (firstErrorField) {
+                              const errorElement = document.querySelector(`[name="${firstErrorField}"]`) || 
+                                                  document.querySelector(`#${firstErrorField}`) ||
+                                                  document.querySelector('.is-invalid');
+                              if (errorElement) {
+                                errorElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                (errorElement as HTMLElement).focus?.();
+                              }
+                            }
+                          }, 100);
+                          return;
+                        }
+                        setActiveTab("address");
+                      }}
                       id="address-tab"
                       data-bs-toggle="tab"
                       data-bs-target="#address"
                       type="button"
                       role="tab"
                       aria-selected="false"
+                      disabled={!isBasicInfoValidated}
                     >
                       Permissions
                     </button>
@@ -2351,6 +2634,12 @@ const EmployeeList = () => {
                   tabIndex={0}
                 >
                   <div className="modal-body pb-0 ">
+                    {/* General error display */}
+                    {fieldErrors.general && (
+                      <div className="alert alert-danger mb-3" role="alert">
+                        {fieldErrors.general}
+                      </div>
+                    )}
                     <div className="row">
                       <div className="col-md-12">
                         <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
@@ -2367,7 +2656,7 @@ const EmployeeList = () => {
                           )}
                           <div className="profile-upload">
                             <div className="mb-2">
-                              <h6 className="mb-1">Upload Profile Image</h6>
+                              <h6 className="mb-1">Upload Profile Image (Optional)</h6>
                               <p className="fs-12">
                                 Image should be below 4 mb
                               </p>
@@ -2417,23 +2706,35 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="text"
-                            className="form-control"
+                            className={`form-control ${fieldErrors.firstName ? 'is-invalid' : ''}`}
                             name="firstName"
                             value={formData.firstName}
                             onChange={handleChange}
+                            onFocus={() => clearFieldError('firstName')}
+                            onBlur={(e) => handleFieldBlur('firstName', e.target.value)}
                           />
+                          {fieldErrors.firstName && (
+                            <div className="invalid-feedback d-block">{fieldErrors.firstName}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">Last Name</label>
+                          <label className="form-label">
+                            Last Name <span className="text-danger"> *</span>
+                          </label>
                           <input
                             type="text"
-                            className="form-control"
+                            className={`form-control ${fieldErrors.lastName ? 'is-invalid' : ''}`}
                             name="lastName"
                             value={formData.lastName}
                             onChange={handleChange}
+                            onFocus={() => clearFieldError('lastName')}
+                            onBlur={(e) => handleFieldBlur('lastName', e.target.value)}
                           />
+                          {fieldErrors.lastName && (
+                            <div className="invalid-feedback d-block">{fieldErrors.lastName}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2456,7 +2757,7 @@ const EmployeeList = () => {
                           </label>
                           <div className="input-icon-end position-relative">
                             <DatePicker
-                              className="form-control datetimepicker"
+                              className={`form-control datetimepicker ${fieldErrors.dateOfJoining ? 'is-invalid' : ''}`}
                               format={{
                                 format: "DD-MM-YYYY",
                                 type: "mask",
@@ -2465,12 +2766,19 @@ const EmployeeList = () => {
                               placeholder="DD-MM-YYYY"
                               name="dateOfJoining"
                               value={formData.dateOfJoining}
-                              onChange={handleDateChange}
+                              onFocus={() => clearFieldError('dateOfJoining')}
+                              onChange={(date) => {
+                                handleDateChange(date);
+                                handleFieldBlur('dateOfJoining', date);
+                              }}
                             />
                             <span className="input-icon-addon">
                               <i className="ti ti-calendar text-gray-7" />
                             </span>
                           </div>
+                          {fieldErrors.dateOfJoining && (
+                            <div className="invalid-feedback d-block">{fieldErrors.dateOfJoining}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2480,11 +2788,16 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="text"
-                            className="form-control"
+                            className={`form-control ${fieldErrors.userName ? 'is-invalid' : ''}`}
                             name="userName"
                             value={formData.account.userName}
                             onChange={handleChange}
+                            onFocus={() => clearFieldError('userName')}
+                            onBlur={(e) => handleFieldBlur('userName', e.target.value)}
                           />
+                          {fieldErrors.userName && (
+                            <div className="invalid-feedback d-block">{fieldErrors.userName}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2494,11 +2807,16 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="email"
-                            className="form-control"
+                            className={`form-control ${fieldErrors.email ? 'is-invalid' : ''}`}
                             name="email"
                             value={formData.contact.email}
                             onChange={handleChange}
+                            onFocus={() => clearFieldError('email')}
+                            onBlur={(e) => handleFieldBlur('email', e.target.value)}
                           />
+                          {fieldErrors.email && (
+                            <div className="invalid-feedback d-block">{fieldErrors.email}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2507,24 +2825,30 @@ const EmployeeList = () => {
                             Gender <span className="text-danger"> *</span>
                           </label>
                           <select
-                            className="form-control"
+                            className={`form-control ${fieldErrors.gender ? 'is-invalid' : ''}`}
                             name="gender"
                             value={formData.personal?.gender || ""}
-                            onChange={(e) =>
+                            onFocus={() => clearFieldError('gender')}
+                            onChange={(e) => {
+                              const value = e.target.value;
                               setFormData((prev) => ({
                                 ...prev,
                                 personal: {
                                   ...prev.personal,
-                                  gender: e.target.value,
+                                  gender: value,
                                 },
-                              }))
-                            }
+                              }));
+                              handleFieldBlur('gender', value);
+                            }}
                           >
                             <option value="">Select Gender</option>
                             <option value="male">Male</option>
                             <option value="female">Female</option>
                             <option value="other">Other</option>
                           </select>
+                          {fieldErrors.gender && (
+                            <div className="invalid-feedback d-block">{fieldErrors.gender}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2534,7 +2858,7 @@ const EmployeeList = () => {
                           </label>
                           <div className="input-icon-end position-relative">
                             <DatePicker
-                              className="form-control datetimepicker"
+                              className={`form-control datetimepicker ${fieldErrors.birthday ? 'is-invalid' : ''}`}
                               format="DD-MM-YYYY"
                               getPopupContainer={getModalContainer}
                               placeholder="DD-MM-YYYY"
@@ -2544,22 +2868,26 @@ const EmployeeList = () => {
                                   ? dayjs(formData.personal.birthday)
                                   : null
                               }
-                              onChange={(date) =>
+                              onFocus={() => clearFieldError('birthday')}
+                              onChange={(date) => {
+                                const isoDate = date ? date.toDate().toISOString() : null;
                                 setFormData((prev) => ({
                                   ...prev,
                                   personal: {
                                     ...prev.personal,
-                                    birthday: date
-                                      ? date.toDate().toISOString()
-                                      : null,
+                                    birthday: isoDate,
                                   },
-                                }))
-                              }
+                                }));
+                                handleFieldBlur('birthday', isoDate);
+                              }}
                             />
                             <span className="input-icon-addon">
                               <i className="ti ti-calendar text-gray-7" />
                             </span>
                           </div>
+                          {fieldErrors.birthday && (
+                            <div className="invalid-feedback d-block">{fieldErrors.birthday}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-12">
@@ -2690,10 +3018,12 @@ const EmployeeList = () => {
                                   ? "text"
                                   : "password"
                               }
-                              className="pass-input form-control"
+                              className={`pass-input form-control ${fieldErrors.password ? 'is-invalid' : ''}`}
                               name="password"
                               value={formData.account.password}
                               onChange={handleChange}
+                              onFocus={() => clearFieldError('password')}
+                              onBlur={(e) => handleFieldBlur('password', e.target.value)}
                             />
                             <span
                               className={`ti toggle-passwords ${
@@ -2706,6 +3036,9 @@ const EmployeeList = () => {
                               }
                             ></span>
                           </div>
+                          {fieldErrors.password && (
+                            <div className="invalid-feedback d-block">{fieldErrors.password}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2721,12 +3054,14 @@ const EmployeeList = () => {
                                   ? "text"
                                   : "password"
                               }
-                              className="pass-input form-control"
+                              className={`pass-input form-control ${fieldErrors.confirmPassword ? 'is-invalid' : ''}`}
                               name="confirmPassword"
                               value={confirmPassword}
                               onChange={(e) =>
                                 setConfirmPassword(e.target.value)
                               }
+                              onFocus={() => clearFieldError('confirmPassword')}
+                              onBlur={(e) => handleFieldBlur('confirmPassword', e.target.value)}
                             />
                             <span
                               className={`ti toggle-passwords ${
@@ -2739,6 +3074,9 @@ const EmployeeList = () => {
                               }
                             ></span>
                           </div>
+                          {fieldErrors.confirmPassword && (
+                            <div className="invalid-feedback d-block">{fieldErrors.confirmPassword}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2748,32 +3086,23 @@ const EmployeeList = () => {
                           </label>
                           <input
                             type="text"
-                            className="form-control"
+                            className={`form-control ${fieldErrors.phone ? 'is-invalid' : ''}`}
                             name="phone"
                             value={formData.contact.phone}
                             onChange={handleChange}
+                            onFocus={() => clearFieldError('phone')}
+                            onBlur={(e) => handleFieldBlur('phone', e.target.value)}
                           />
+                          {fieldErrors.phone && (
+                            <div className="invalid-feedback d-block">{fieldErrors.phone}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">
-                            Company<span className="text-danger"> *</span>
-                          </label>
-                          <input
-                            type="text"
-                            className="form-control"
-                            name="companyName"
-                            value={formData.companyName}
-                            onChange={handleChange}
-                          />
-                        </div>
-                      </div>
-                      <div className="col-md-6">
-                        <div className="mb-3">
-                          <label className="form-label">Department</label>
+                          <label className="form-label">Department <span className="text-danger">*</span></label>
                           <CommonSelect
-                            className="select"
+                            className={`select ${fieldErrors.departmentId ? 'is-invalid' : ''}`}
                             options={department}
                             defaultValue={EMPTY_OPTION}
                             onChange={(option) => {
@@ -2783,10 +3112,18 @@ const EmployeeList = () => {
                                   option.value
                                 );
                                 setSelectedDepartment(option.value);
+                                
+                                // Reset designation when department changes
                                 setDesignation([
                                   { value: "", label: "Select" },
                                 ]);
                                 handleSelectChange("designationId", "");
+                                
+                                // Clear errors for both department and designation
+                                clearFieldError('departmentId');
+                                clearFieldError('designationId');
+                                
+                                // Fetch new designations for selected department
                                 if (socket) {
                                   socket.emit("hrm/designations/get", {
                                     departmentId: option.value,
@@ -2795,13 +3132,16 @@ const EmployeeList = () => {
                               }
                             }}
                           />
+                          {fieldErrors.departmentId && (
+                            <div className="invalid-feedback d-block">{fieldErrors.departmentId}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">Designation</label>
+                          <label className="form-label">Designation <span className="text-danger">*</span></label>
                           <CommonSelect
-                            className="select"
+                            className={`select ${fieldErrors.designationId ? 'is-invalid' : ''}`}
                             options={designation}
                             defaultValue={EMPTY_OPTION}
                             onChange={(option) => {
@@ -2810,9 +3150,13 @@ const EmployeeList = () => {
                                   "designationId",
                                   option.value
                                 );
+                                clearFieldError('designationId');
                               }
                             }}
                           />
+                          {fieldErrors.designationId && (
+                            <div className="invalid-feedback d-block">{fieldErrors.designationId}</div>
+                          )}
                         </div>
                       </div>
                       <div className="col-md-6">
@@ -2853,9 +3197,7 @@ const EmployeeList = () => {
                       </div>
                       <div className="col-md-12">
                         <div className="mb-3">
-                          <label className="form-label">
-                            About <span className="text-danger"> *</span>
-                          </label>
+                          <label className="form-label">About</label>
                           <textarea
                             className="form-control"
                             rows={3}
@@ -2868,11 +3210,19 @@ const EmployeeList = () => {
                       </div>
                     </div>
                   </div>
+                  {/* Display general/common errors before Save button */}
+                  {fieldErrors.general && (
+                    <div className="alert alert-danger mx-3 mb-0" role="alert">
+                      <i className="ti ti-alert-circle me-2"></i>
+                      {fieldErrors.general}
+                    </div>
+                  )}
                   <div className="modal-footer">
                     <button
                       type="button"
                       className="btn btn-outline-light border me-2"
                       data-bs-dismiss="modal"
+                      onClick={() => setTimeout(() => closeModal(), 100)}
                     >
                       Cancel
                     </button>
@@ -2880,8 +3230,16 @@ const EmployeeList = () => {
                       type="button"
                       className="btn btn-primary"
                       onClick={handleNext}
+                      disabled={isValidating || loading}
                     >
-                      Save and Next
+                      {isValidating ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Validating...
+                        </>
+                      ) : (
+                        "Save and Next"
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2999,6 +3357,7 @@ const EmployeeList = () => {
                       onClick={() => {
                         handleResetFormData();
                         setActiveTab("basic-info");
+                        setTimeout(() => closeModal(), 100);
                       }}
                     >
                       Cancel
@@ -3006,8 +3365,21 @@ const EmployeeList = () => {
                     <button
                       type="submit"
                       className="btn btn-primary"
+                      disabled={isValidating || loading}
                     >
-                      Save
+                      {isValidating ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Validating...
+                        </>
+                      ) : loading ? (
+                        <>
+                          <span className="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                          Saving...
+                        </>
+                      ) : (
+                        "Save"
+                      )}
                     </button>
                   </div>
                 </div>
@@ -3031,7 +3403,10 @@ const EmployeeList = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
-                onClick={() => setEditingEmployee(null)}
+                onClick={() => {
+                  setEditingEmployee(null);
+                  setTimeout(() => closeModal(), 100);
+                }}
               >
                 <i className="ti ti-x" />
               </button>
@@ -3713,6 +4088,7 @@ const EmployeeList = () => {
                       type="button"
                       className="btn btn-outline-light border me-2"
                       data-bs-dismiss="modal"
+                      onClick={() => setTimeout(() => closeModal(), 100)}
                     >
                       Cancel
                     </button>
@@ -3845,6 +4221,7 @@ const EmployeeList = () => {
                       type="button"
                       className="btn btn-outline-light border me-2"
                       data-bs-dismiss="modal"
+                      onClick={() => setTimeout(() => closeModal(), 100)}
                     >
                       Cancel
                     </button>
@@ -3887,7 +4264,10 @@ const EmployeeList = () => {
                         to={all_routes.employeeList}
                         className="btn btn-dark w-100"
                         data-bs-dismiss="modal"
-                        onClick={handleResetFormData}
+                        onClick={() => {
+                          handleResetFormData();
+                          setTimeout(() => closeModal(), 100);
+                        }}
                       >
                         Back to List
                       </Link>
@@ -3930,6 +4310,7 @@ const EmployeeList = () => {
                   data-bs-dismiss="modal"
                   onClick={() => {
                     setNewlyAddedEmployee(null);
+                    setTimeout(() => closeModal(), 100);
                   }}
                 >
                   <i className="ti ti-list me-1" />
@@ -3943,6 +4324,7 @@ const EmployeeList = () => {
                       navigate(`${all_routes.employeedetails}/${newlyAddedEmployee._id}`);
                     }
                     setNewlyAddedEmployee(null);
+                    setTimeout(() => closeModal(), 100);
                   }}
                 >
                   <i className="ti ti-eye me-1" />
@@ -3978,7 +4360,10 @@ const EmployeeList = () => {
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
-                  onClick={() => setEmployeeToDelete(null)}
+                  onClick={() => {
+                    setEmployeeToDelete(null);
+                    setTimeout(() => closeModal(), 100);
+                  }}
                   disabled={loading}
                 >
                   Cancel
@@ -3991,6 +4376,7 @@ const EmployeeList = () => {
                       deleteEmployee(employeeToDelete._id);
                     }
                     setEmployeeToDelete(null);
+                    setTimeout(() => closeModal(), 100);
                   }}
                   disabled={loading}
                 >

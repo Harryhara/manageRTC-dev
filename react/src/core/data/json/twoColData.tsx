@@ -458,18 +458,18 @@ export const TowColData = [
                     base: 'employees',
                     base2: 'employee-list',
                   },
-                  {
-                    menuValue: 'Employees Grid',
-                    route: routes.employeeGrid,
-                    base: 'employees',
-                    base2: 'employee-grid',
-                  },
-                  {
-                    menuValue: 'Employees Details',
-                    route: routes.employeeDetailPage,
-                    base: 'employees',
-                    base2: 'employee-details',
-                  },
+                  // {
+                  //   menuValue: 'Employees Grid',
+                  //   route: routes.employeeGrid,
+                  //   base: 'employees',
+                  //   base2: 'employee-grid',
+                  // },
+                  // {
+                  //   menuValue: 'Employees Details',
+                  //   route: routes.employeeDetailPage,
+                  //   base: 'employees',
+                  //   base2: 'employee-details',
+                  // },
                   {
                     menuValue: 'Departments',
                     route: routes.departments,

@@ -474,18 +474,18 @@ const useSidebarData = () => {
                   base: "employees",
                   base2: "employee-list",
                 },
-                {
-                  label: "Employees Grid",
-                  link: routes.employeeGrid,
-                  base: "employees",
-                  base2: "employee-grid",
-                },
-                {
-                  label: "Employees Details",
-                  link: routes.employeedetails,
-                  base: "employees",
-                  base2: "employee-details",
-                },
+                // {
+                //   label: "Employees Grid",
+                //   link: routes.employeeGrid,
+                //   base: "employees",
+                //   base2: "employee-grid",
+                // },
+                // {
+                //   label: "Employees Details",
+                //   link: routes.employeedetails,
+                //   base: "employees",
+                //   base2: "employee-details",
+                // },
                 {
                   label: "Departments",
                   link: routes.departments,
@@ -2447,18 +2447,18 @@ const useSidebarData = () => {
                   base: "employees",
                   base2: "employee-list",
                 },
-                {
-                  label: "Employees Grid",
-                  link: routes.employeeGrid,
-                  base: "employees",
-                  base2: "employee-grid",
-                },
-                {
-                  label: "Employees Details",
-                  link: routes.employeedetails,
-                  base: "employees",
-                  base2: "employee-details",
-                },
+                // {
+                //   label: "Employees Grid",
+                //   link: routes.employeeGrid,
+                //   base: "employees",
+                //   base2: "employee-grid",
+                // },
+                // {
+                //   label: "Employees Details",
+                //   link: routes.employeedetails,
+                //   base: "employees",
+                //   base2: "employee-details",
+                // },
                 {
                   label: "Departments",
                   link: routes.departments,
@@ -3394,18 +3394,18 @@ const useSidebarData = () => {
                   base: "employees",
                   base2: "employee-list",
                 },
-                {
-                  label: "Employees Grid",
-                  link: routes.employeeGrid,
-                  base: "employees",
-                  base2: "employee-grid",
-                },
-                {
-                  label: "Employees Details",
-                  link: routes.employeedetails,
-                  base: "employees",
-                  base2: "employee-details",
-                },
+                // {
+                //   label: "Employees Grid",
+                //   link: routes.employeeGrid,
+                //   base: "employees",
+                //   base2: "employee-grid",
+                // },
+                // {
+                //   label: "Employees Details",
+                //   link: routes.employeedetails,
+                //   base: "employees",
+                //   base2: "employee-details",
+                // },
                 {
                   label: "Departments",
                   link: routes.departments,
