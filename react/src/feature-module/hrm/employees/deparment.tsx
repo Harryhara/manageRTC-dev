@@ -11,6 +11,7 @@ import { departmentName } from '../../../core/common/selectoption/selectoption';
 import { useSocket } from "../../../SocketContext";
 import { Socket } from "socket.io-client";
 import Footer from "../../../core/common/footer";
+import { hideModal, cleanupModalBackdrops } from '../../../utils/modalUtils';
 
 type PasswordField = "password" | "confirmPassword";
 
@@ -48,6 +49,10 @@ const Department = () => {
   const [filters, setFilters] = useState({ status: "" });
   const [editingDept, setEditingDept] = useState<Departments | null>(null);
   const [departmentToDelete, setDepartmentToDelete] = useState<Departments | null>(null);
+  const [departmentNameError, setDepartmentNameError] = useState<string | null>(null);
+  const [editDepartmentNameError, setEditDepartmentNameError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const socket = useSocket() as Socket | null;
 
   useEffect(() => {
@@ -66,17 +71,23 @@ const Department = () => {
 
     const handleAddDepartmentResponse = (response: any) => {
       if (!isMounted) return;
-      setLoading(false);
+      setIsSubmitting(false);
       if (response.done) {
         setResponseData(response.data);
         setError(null);
         // Reset form fields after successful submission
         resetAddDepartmentForm();
+        // Close modal programmatically after successful response
+        hideModal('add_department');
+        // Extra safety cleanup after animation
+        setTimeout(() => cleanupModalBackdrops(), 500);
         if (socket) {
           socket.emit("hr/departmentsStats/get");
         }
       } else {
-        setError(response.error || "Failed to add policy");
+        // Show backend error inline under the department name field
+        // Keep modal open - do NOT set general error state
+        setDepartmentNameError(response.error || "Failed to add department");
       }
     };
 
@@ -97,17 +108,21 @@ const Department = () => {
     const handleUpdateDepartmentResponse = (response: any) => {
       clearTimeout(timeoutId);
       if (!isMounted) return;
+      setIsUpdating(false);
 
       if (response.done) {
         setResponseData(response.data);
         setError(null);
-        setLoading(false);
+        resetEditDepartmentForm();
+        // Close modal only on success
+        hideModal('edit_department');
+        setTimeout(() => cleanupModalBackdrops(), 500);
         if (socket) {
           socket.emit("hr/departmentsStats/get");
         }
       } else {
-        setError(response.error || "Failed to fetch policies");
-        setLoading(false);
+        // Show backend error inline - keep modal open
+        setEditDepartmentNameError(response.error || "Failed to update department");
       }
     }
 
@@ -240,42 +255,49 @@ const Department = () => {
     setDepartmentName("");
     setSelectedStatus(statusChoose[0].value);
     setError(null);
+    setDepartmentNameError(null);
+  };
+
+  // Reset Edit Department validation errors
+  const resetEditDepartmentForm = () => {
+    setError(null);
+    setEditDepartmentNameError(null);
   };
 
   const handleSubmit = () => {
     try {
-      setError(null);
+      setDepartmentNameError(null);
 
       if (!departmentName.trim()) {
-        setError("Department Name is required");
+        setDepartmentNameError("Department Name is required");
         return;
       }
 
       if (!selectedStatus) {
-        setError("Status is required");
+        setDepartmentNameError("Status is required");
         return;
       }
 
-      setLoading(true);
+      setIsSubmitting(true);
       const payload = {
         departmentName: departmentName,
         status: selectedStatus,
       };
 
       if (!socket) {
-        setError("Socket connection is not available.");
-        setLoading(false);
+        setDepartmentNameError("Socket connection is not available.");
+        setIsSubmitting(false);
         return;
       }
 
       socket.emit("hr/departments/add", payload);
     } catch (error) {
       if (error instanceof Error) {
-        setError(error.message);
+        setDepartmentNameError(error.message);
       } else {
-        setError("An unexpected error occurred");
+        setDepartmentNameError("An unexpected error occurred");
       }
-      setLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -323,26 +345,26 @@ const Department = () => {
 
   const handleUpdateSubmit = (editingDept: Departments) => {
     try {
-      setError(null);
+      setEditDepartmentNameError(null);
+      
       const { _id, department, status } = editingDept;
 
       if (!_id) {
-        setError("Id not found");
+        setEditDepartmentNameError("Id not found");
+        return;
+      }
+
+      if (!department || !department.trim()) {
+        setEditDepartmentNameError("Department Name is required");
         return;
       }
 
       if (!status) {
-        setError("Status is required");
+        setEditDepartmentNameError("Status is required");
         return;
       }
 
-
-      if (!department) {
-        setError("Department name is required");
-        return;
-      }
-
-      setLoading(true);
+      setIsUpdating(true);
 
       const payload = {
         _id,
@@ -352,17 +374,18 @@ const Department = () => {
 
       if (socket) {
         socket.emit("hrm/departments/update", payload);
+        // Modal will be closed by handleUpdateDepartmentResponse on success
       } else {
-        setError("Socket connection is not available.");
-        setLoading(false);
+        setEditDepartmentNameError("Socket connection is not available.");
+        setIsUpdating(false);
       }
     } catch (error) {
       if (error instanceof Error) {
-        setError(error.message);
+        setEditDepartmentNameError(error.message);
       } else {
-        setError("An unexpected error occurred");
+        setEditDepartmentNameError("An unexpected error occurred");
       }
-      setLoading(false);
+      setIsUpdating(false);
     }
   };
 
@@ -589,8 +612,23 @@ const Department = () => {
                   <div className="col-md-12">
                     <div className="mb-3">
                       <label className="form-label">Department Name</label>
-                      <input type="text" className="form-control"
-                        value={departmentName} onChange={(e) => setDepartmentName(e.target.value)} />
+                      <input 
+                        type="text" 
+                        className={`form-control ${departmentNameError ? 'is-invalid' : ''}`}
+                        value={departmentName} 
+                        onChange={(e) => {
+                          setDepartmentName(e.target.value);
+                          // Clear error when user starts typing
+                          if (departmentNameError) {
+                            setDepartmentNameError(null);
+                          }
+                        }} 
+                      />
+                      {departmentNameError && (
+                        <div className="invalid-feedback d-block">
+                          {departmentNameError}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -616,9 +654,13 @@ const Department = () => {
                 >
                   Cancel
                 </button>
-                <button type="button" data-bs-dismiss="modal" className="btn btn-primary"
-                  disabled={loading} onClick={handleSubmit}>
-                  Add Department
+                <button 
+                  type="button" 
+                  className="btn btn-primary"
+                  disabled={isSubmitting} 
+                  onClick={handleSubmit}
+                >
+                  {isSubmitting ? 'Adding...' : 'Add Department'}
                 </button>
               </div>
             </form>
@@ -637,6 +679,7 @@ const Department = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={resetEditDepartmentForm}
               >
                 <i className="ti ti-x" />
               </button>
@@ -649,12 +692,22 @@ const Department = () => {
                       <label className="form-label">Department Name</label>
                       <input
                         type="text"
-                        className="form-control"
+                        className={`form-control ${editDepartmentNameError ? 'is-invalid' : ''}`}
                         value={editingDept?.department || ""}
-                        onChange={(e) =>
+                        onChange={(e) => {
                           setEditingDept(prev =>
-                            prev ? { ...prev, department: e.target.value } : prev)}
+                            prev ? { ...prev, department: e.target.value } : prev);
+                          // Clear error when user starts typing
+                          if (editDepartmentNameError) {
+                            setEditDepartmentNameError(null);
+                          }
+                        }}
                       />
+                      {editDepartmentNameError && (
+                        <div className="invalid-feedback d-block">
+                          {editDepartmentNameError}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -679,21 +732,21 @@ const Department = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={resetEditDepartmentForm}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
                   onClick={() => {
                     if (editingDept) {
                       handleUpdateSubmit(editingDept);
                     }
                   }}
-                  disabled={!editingDept}
+                  disabled={!editingDept || isUpdating}
                 >
-                  Update
+                  {isUpdating ? 'Updating...' : 'Update'}
                 </button>
               </div>
             </form>
