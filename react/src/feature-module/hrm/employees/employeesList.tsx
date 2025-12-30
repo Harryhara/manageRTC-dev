@@ -2018,7 +2018,7 @@ const EmployeeList = () => {
                       <span className="avatar avatar-lg bg-info rounded-circle">
                         <i className="ti ti-user-plus" />
                       </span>
-                    </div>
+                    </div> 
                     <div className="ms-2 overflow-hidden">
                       <p className="fs-12 fw-medium mb-1 text-truncate">
                         New Joiners
