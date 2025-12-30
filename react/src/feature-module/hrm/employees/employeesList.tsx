@@ -2018,7 +2018,7 @@ const EmployeeList = () => {
                       <span className="avatar avatar-lg bg-info rounded-circle">
                         <i className="ti ti-user-plus" />
                       </span>
-                    </div>
+                    </div> 
                     <div className="ms-2 overflow-hidden">
                       <p className="fs-12 fw-medium mb-1 text-truncate">
                         New Joiners
@@ -2067,7 +2067,7 @@ const EmployeeList = () => {
                           )?.label || "None"
                         }`
                       : ": None"}
-                  </Link>
+                  </a>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
                     {department
                       .filter((dep) => dep.value)
@@ -2104,7 +2104,7 @@ const EmployeeList = () => {
                           selectedStatus.slice(1)
                         }`
                       : ": None"}
-                  </Link>
+                  </a>
                   <ul className="dropdown-menu  dropdown-menu-end p-3">
                     <li>
                       <Link
@@ -2148,7 +2148,7 @@ const EmployeeList = () => {
                           sortOrder.charAt(0).toUpperCase() + sortOrder.slice(1)
                         }`
                       : ": None"}
-                  </Link>
+                  </a>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
                       <button
