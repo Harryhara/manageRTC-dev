@@ -67,6 +67,7 @@ const allowedOrigins = [
   "https://hrms-tool-amasqis.onrender.com",
   "https://devmanagertc.amasqis.ai",
   "https://dev.manage-rtc.com",
+  "https://apidev.manage-rtc.com",
   process.env.FRONTEND_URL,
   "*",
 ];
@@ -81,6 +82,7 @@ const authorizedParties = [
   "https://devhrms-pm.amasqis.ai",
   "https://devmanagertc.amasqis.ai",
   "https://dev.manage-rtc.com",
+  "https://apidev.manage-rtc.com",
 ];
 
 export const socketHandler = (httpServer) => {
