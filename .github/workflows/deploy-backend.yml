@@ -54,8 +54,8 @@ jobs:
             cd /var/www/apidev.manage-rtc.com/backend
 
             cat > .env << 'EOF'
-            PORT=${{ secrets.ENV_PORT }}                     # e.g. 5100
-            MONGO_URI=${{ secrets.ENV_MONGO_URI }}           # or MONGODB_URI if your code expects that
+            PORT=${{ secrets.ENV_PORT }}
+            MONGO_URI=${{ secrets.ENV_MONGO_URI }}
             CLERK_SECRET_KEY=${{ secrets.ENV_CLERK_SECRET_KEY }}
             CLERK_JWT_KEY=${{ secrets.ENV_CLERK_JWT_KEY }}
             CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}
@@ -63,6 +63,10 @@ jobs:
             JWT=${{ secrets.ENV_JWT }}
             SOCKETS_ENABLED=${{ secrets.ENV_SOCKETS_ENABLED }}
             NODE_ENV=production
+            ZONE_ID=${{ secrets.ENV_ZONE_ID }}
+            CLOUDFLARE_API_KEY=${{ secrets.ENV_CLOUDFLARE_API_KEY }}
+            DOMAIN=${{ secrets.ENV_DOMAIN }}
+            VPS_IP=${{ secrets.ENV_VPS_IP }}
             EOF
 
             npm ci --omit=dev
