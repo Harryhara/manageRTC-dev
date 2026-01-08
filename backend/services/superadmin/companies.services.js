@@ -107,26 +107,30 @@ const addCompany = async (data, user) => {
       );
     }
 
-    // Provinsion
+    // Provision - Create DNS subdomain pointing to VPS
 
-    await axios.post(
-      `https://api.cloudflare.com/client/v4/zones/${process.env.ZONE_ID}/dns_records`,
-      {
-        type: "A",
-        name: `${data.domain}.${process.env.DOMAIN}`,
-        content: "1.1.1.1",
-        ttl: 120,
-        proxied: false,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${process.env.CLOUDFLARE_API_KEY}`,
-          "Content-Type": "application/json",
+    try {
+      await axios.post(
+        `https://api.cloudflare.com/client/v4/zones/${process.env.ZONE_ID}/dns_records`,
+        {
+          type: "A",
+          name: `${data.domain}`,  // Cloudflare automatically appends the zone domain
+          content: process.env.VPS_IP || "31.97.229.42",  // Use VPS_IP from env or fallback
+          ttl: 120,
+          proxied: true,  // Enable Cloudflare proxy for SSL/security
         },
-      }
-    );
-
-    console.log("Subdomain created");
+        {
+          headers: {
+            Authorization: `Bearer ${process.env.CLOUDFLARE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+      console.log(`✅ Subdomain created: ${data.domain}.${process.env.DOMAIN}`);
+    } catch (dnsError) {
+      console.error("⚠️ DNS creation failed:", dnsError.response?.data || dnsError.message);
+      // Don't fail the whole operation if DNS fails - company is still created
+    }
 
     // Step 6: Send credentials email
     await sendCredentialsEmail({
