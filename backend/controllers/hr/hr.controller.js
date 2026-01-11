@@ -8,6 +8,7 @@ import * as hrmEmployee from "../../services/hr/hrm.employee.js";
 import terminationController from "./termination.controller.js";
 import resignationController from "./resignation.controller.js";
 import holidayController from "./holidays.controller.js";
+import holidayTypeController from "./holidayTypes.controller.js";
 
 const hrDashboardController = (socket, io) => {
   console.log("Setting up termination controller...");
@@ -16,6 +17,13 @@ const hrDashboardController = (socket, io) => {
   resignationController(socket,io);
   console.log("Attaching holidays controller...**********");
   holidayController(socket,io);
+  console.log("Attaching holiday types controller...**********");
+  try {
+    holidayTypeController(socket,io);
+    console.log("Holiday types controller attached successfully!");
+  } catch (error) {
+    console.error("ERROR attaching holiday types controller:", error);
+  }
   const isDevelopment =
     process.env.NODE_ENV === "development" ||
     process.env.NODE_ENV === "production";

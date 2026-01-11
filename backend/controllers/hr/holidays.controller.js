@@ -86,6 +86,13 @@ const holidayController = (socket, io) => {
             }
         }
 
+        // Validate holidayTypeId (required)
+        if (!data.holidayTypeId) {
+            errors.holidayTypeId = "Holiday type is required";
+        } else if (typeof data.holidayTypeId !== "string" || data.holidayTypeId.trim() === "") {
+            errors.holidayTypeId = "Holiday type must be a valid ID";
+        }
+
         // Validate description (optional) - allow empty string
         if (data.description !== undefined && data.description !== null && typeof data.description !== "string") {
             errors.description = "Description must be a string";

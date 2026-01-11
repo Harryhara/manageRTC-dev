@@ -12,11 +12,12 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
 
     const collections = getTenantCollections(companyId);
 
-    // Validate required fields (description is now optional)
+    // Validate required fields (description is optional)
     if (
       !holidaydata.title ||
       !holidaydata.date ||
-      !holidaydata.status
+      !holidaydata.status ||
+      !holidaydata.holidayTypeId
     ) {
       return {
         done: false,
@@ -24,8 +25,25 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
           title: !holidaydata.title ? "Title is required" : undefined,
           date: !holidaydata.date ? "Date is required" : undefined,
           status: !holidaydata.status ? "Status is required" : undefined,
+          holidayTypeId: !holidaydata.holidayTypeId ? "Holiday type is required" : undefined,
         },
-        message: "Holiday title, date, and status are required",
+        message: "Holiday title, date, status, and type are required",
+      };
+    }
+
+    // Validate that the holiday type exists
+    const holidayType = await collections.holidayTypes.findOne({
+      _id: new ObjectId(holidaydata.holidayTypeId),
+      isDeleted: { $ne: true },
+    });
+
+    if (!holidayType) {
+      return {
+        done: false,
+        errors: {
+          holidayTypeId: "Selected holiday type does not exist",
+        },
+        message: "Selected holiday type does not exist",
       };
     }
 
@@ -50,6 +68,8 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
       date: new Date(holidaydata.date),
       description: holidaydata.description || "", // Optional field
       status: holidaydata.status,
+      holidayTypeId: new ObjectId(holidaydata.holidayTypeId),
+      holidayTypeName: holidayType.name, // Denormalized for easier display
       repeatsEveryYear: holidaydata.repeatsEveryYear || false, // Default to false
       createdBy: hrId,
       createdAt: new Date(),
@@ -116,16 +136,33 @@ export const updateHoliday = async (companyId, hrId, payload) => {
       return { done: false, message: "Holiday ID not found" };
     }
 
-    // Validate required fields (description is now optional)
-    if (!payload.title || !payload.date || !payload.status) {
+    // Validate required fields (description is optional)
+    if (!payload.title || !payload.date || !payload.status || !payload.holidayTypeId) {
       return {
         done: false,
         errors: {
           title: !payload.title ? "Title is required" : undefined,
           date: !payload.date ? "Date is required" : undefined,
           status: !payload.status ? "Status is required" : undefined,
+          holidayTypeId: !payload.holidayTypeId ? "Holiday type is required" : undefined,
         },
-        message: "Title, date, and status are required",
+        message: "Title, date, status, and holiday type are required",
+      };
+    }
+
+    // Validate that the holiday type exists
+    const holidayType = await collections.holidayTypes.findOne({
+      _id: new ObjectId(payload.holidayTypeId),
+      isDeleted: { $ne: true },
+    });
+
+    if (!holidayType) {
+      return {
+        done: false,
+        errors: {
+          holidayTypeId: "Selected holiday type does not exist",
+        },
+        message: "Selected holiday type does not exist",
       };
     }
 
@@ -151,6 +188,8 @@ export const updateHoliday = async (companyId, hrId, payload) => {
       date: new Date(payload.date),
       description: payload.description || "", // Optional field
       status: payload.status,
+      holidayTypeId: new ObjectId(payload.holidayTypeId),
+      holidayTypeName: holidayType.name, // Denormalized for easier display
       updatedBy: hrId,
       updatedAt: new Date(),
     };
