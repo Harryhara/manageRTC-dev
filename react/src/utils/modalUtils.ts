@@ -56,16 +56,18 @@ export const hideModal = (modalId: string) => {
       const modalInstance = bootstrap.Modal.getInstance(modal);
       if (modalInstance) {
         modalInstance.hide();
-        // Cleanup after Bootstrap animation completes (typically 300ms)
-        setTimeout(() => cleanupModalBackdrops(), 350);
-        return;
       }
+      // Force cleanup immediately and again after animation
+      setTimeout(() => cleanupModalBackdrops(), 100);
+      setTimeout(() => cleanupModalBackdrops(), 400);
+      return;
     }
     
     // Method 2: Try jQuery Bootstrap (if available)
     if ((window as any).$ && (window as any).$.fn.modal) {
       (window as any).$(modal).modal('hide');
-      setTimeout(() => cleanupModalBackdrops(), 350);
+      setTimeout(() => cleanupModalBackdrops(), 100);
+      setTimeout(() => cleanupModalBackdrops(), 400);
       return;
     }
     
@@ -90,24 +92,36 @@ export const hideModal = (modalId: string) => {
 
 // Helper function to remove all modal backdrops
 const cleanupModalBackdrops = () => {
-  // Remove all modal-backdrop elements
-  const backdrops = document.querySelectorAll('.modal-backdrop');
-  backdrops.forEach(backdrop => backdrop.remove());
-  
-  // Also check for any backdrop by ID
-  const backdropById = document.getElementById('modal-backdrop');
-  if (backdropById) {
-    backdropById.remove();
-  }
-  
-  // Ensure body styles are cleaned up if no other modals are open
-  const openModals = document.querySelectorAll('.modal.show');
-  if (openModals.length === 0) {
-    document.body.classList.remove('modal-open');
-    document.body.style.removeProperty('overflow');
-    document.body.style.removeProperty('padding-right');
-    document.body.style.overflow = '';
-    document.body.style.paddingRight = '';
+  try {
+    // Remove all modal-backdrop elements
+    const backdrops = document.querySelectorAll('.modal-backdrop');
+    backdrops.forEach(backdrop => {
+      backdrop.remove();
+    });
+    
+    // Also check for any backdrop by ID
+    const backdropById = document.getElementById('modal-backdrop');
+    if (backdropById) {
+      backdropById.remove();
+    }
+    
+    // Check for any lingering backdrops with different class combinations
+    const fadeBackdrops = document.querySelectorAll('.fade.show[class*="backdrop"]');
+    fadeBackdrops.forEach(backdrop => {
+      backdrop.remove();
+    });
+    
+    // Ensure body styles are cleaned up
+    const openModals = document.querySelectorAll('.modal.show');
+    if (openModals.length === 0) {
+      document.body.classList.remove('modal-open');
+      document.body.style.removeProperty('overflow');
+      document.body.style.removeProperty('padding-right');
+      document.body.style.overflow = '';
+      document.body.style.paddingRight = '';
+    }
+  } catch (error) {
+    console.error('Error cleaning up modal backdrops:', error);
   }
 };
 

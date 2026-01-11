@@ -54,31 +54,50 @@ const holidayController = (socket, io) => {
     };
     const validateHolidayData = (data) => {
         if (typeof data !== "object" || data === null) {
-            return "Form data must be an object";
+            return { done: false, errors: { _form: "Form data must be an object" } };
         }
 
-        // Required string fields
-        const requiredStringFields = ["title", "date", "description", "status"];
+        const errors = {};
 
-        for (const field of requiredStringFields) {
-            if (!(field in data)) {
-                return `Missing required field: ${field}`;
+        // Validate title (required)
+        if (!data.title) {
+            errors.title = "Title is required";
+        } else if (typeof data.title !== "string" || data.title.trim() === "") {
+            errors.title = "Title must be a non-empty string";
+        }
+
+        // Validate date (required)
+        if (!data.date) {
+            errors.date = "Date is required";
+        } else {
+            const date = new Date(data.date);
+            if (isNaN(date.getTime())) {
+                errors.date = "Invalid date format";
             }
-            if (typeof data[field] !== "string" || data[field].trim() === "") {
-                return `Field '${field}' must be a non-empty string`;
+        }
+
+        // Validate status (required)
+        if (!data.status) {
+            errors.status = "Status is required";
+        } else {
+            const allowedStatuses = ["active", "inactive"];
+            if (!allowedStatuses.includes(data.status.toLowerCase())) {
+                errors.status = "Status must be either 'active' or 'inactive'";
             }
         }
 
-        // Validate date format
-        const date = new Date(data.date);
-        if (isNaN(date.getTime())) {
-            return "Invalid date format. Please provide a valid date.";
+        // Validate description (optional) - allow empty string
+        if (data.description !== undefined && data.description !== null && typeof data.description !== "string") {
+            errors.description = "Description must be a string";
         }
 
-        // Validate status
-        const allowedStatuses = ["active", "inactive"];
-        if (!allowedStatuses.includes(data.status.toLowerCase())) {
-            return "Status must be either 'active' or 'inactive'";
+        // Validate repeatsEveryYear (optional)
+        if (data.repeatsEveryYear !== undefined && typeof data.repeatsEveryYear !== "boolean") {
+            errors.repeatsEveryYear = "Repeats Every Year must be a boolean";
+        }
+
+        if (Object.keys(errors).length > 0) {
+            return { done: false, errors };
         }
 
         return null;
@@ -100,12 +119,9 @@ const holidayController = (socket, io) => {
         try {
             console.log("Hello from add controller", formData);
             const { companyId, hrId } = validateHrAccess(socket);
-            const error = validateHolidayData(formData);
-            if (error) {
-                return socket.emit("hrm/holiday/add-response", {
-                    done: false,
-                    message: error,
-                });
+            const validationResult = validateHolidayData(formData);
+            if (validationResult) {
+                return socket.emit("hrm/holiday/add-response", validationResult);
             }
             const result = await hrmHolidays.addHoliday(companyId, hrId, formData);
             socket.emit("hrm/holiday/add-response", result);

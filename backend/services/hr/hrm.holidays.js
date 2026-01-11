@@ -12,49 +12,56 @@ export const addHoliday = async (companyId, hrId, holidaydata) => {
 
     const collections = getTenantCollections(companyId);
 
+    // Validate required fields (description is now optional)
     if (
       !holidaydata.title ||
       !holidaydata.date ||
-      !holidaydata.description ||
       !holidaydata.status
     ) {
       return {
         done: false,
-        message: "Holiday title, date, description and status are required",
+        errors: {
+          title: !holidaydata.title ? "Title is required" : undefined,
+          date: !holidaydata.date ? "Date is required" : undefined,
+          status: !holidaydata.status ? "Status is required" : undefined,
+        },
+        message: "Holiday title, date, and status are required",
       };
     }
 
-    if (new Date(holidaydata.date) < new Date()) {
-      return { done: false, message: "Date must be in the future" };
-    }
-
+    // Check for duplicate holiday on the same date
     const existingHoliday = await collections.holidays.findOne({
       date: new Date(holidaydata.date),
     });
 
     if (existingHoliday) {
-      console.log("swetyy");
-
       return {
         done: false,
+        errors: {
+          date: "A holiday already exists on this date",
+        },
         message: "A holiday already exists on this date",
       };
     }
 
-    const result = await collections.holidays.insertOne({
+    // Prepare holiday document
+    const holidayDocument = {
       title: holidaydata.title,
       date: new Date(holidaydata.date),
-      description: holidaydata.description,
+      description: holidaydata.description || "", // Optional field
       status: holidaydata.status,
+      repeatsEveryYear: holidaydata.repeatsEveryYear || false, // Default to false
       createdBy: hrId,
       createdAt: new Date(),
-    });
+    };
+
+    const result = await collections.holidays.insertOne(holidayDocument);
 
     return {
       done: true,
       data: {
         _id: result.insertedId,
-        ...holidaydata,
+        ...holidayDocument,
       },
       message: "Holiday created successfully",
     };
@@ -102,41 +109,60 @@ export const updateHoliday = async (companyId, hrId, payload) => {
 
     const collections = getTenantCollections(companyId);
 
-    if (!payload.holidayId) {
+    // Use _id if holidayId is not provided (for backward compatibility)
+    const holidayId = payload.holidayId || payload._id;
+    
+    if (!holidayId) {
       return { done: false, message: "Holiday ID not found" };
     }
 
-    if (!payload.title || !payload.date || !payload.description || !payload.status) {
+    // Validate required fields (description is now optional)
+    if (!payload.title || !payload.date || !payload.status) {
       return {
         done: false,
-        message: "Title, date, description and status are required",
+        errors: {
+          title: !payload.title ? "Title is required" : undefined,
+          date: !payload.date ? "Date is required" : undefined,
+          status: !payload.status ? "Status is required" : undefined,
+        },
+        message: "Title, date, and status are required",
       };
     }
 
+    // Check for duplicate holiday on the same date (excluding current holiday)
     const existingHoliday = await collections.holidays.findOne({
       date: new Date(payload.date),
-      _id: { $ne: new ObjectId(payload.holidayId) },
+      _id: { $ne: new ObjectId(holidayId) },
     });
 
     if (existingHoliday) {
       return {
         done: false,
+        errors: {
+          date: "A holiday already exists on this date",
+        },
         message: "A holiday already exists on this date.",
       };
     }
 
+    // Prepare update document
+    const updateDoc = {
+      title: payload.title,
+      date: new Date(payload.date),
+      description: payload.description || "", // Optional field
+      status: payload.status,
+      updatedBy: hrId,
+      updatedAt: new Date(),
+    };
+
+    // Add repeatsEveryYear if provided
+    if (payload.repeatsEveryYear !== undefined) {
+      updateDoc.repeatsEveryYear = payload.repeatsEveryYear;
+    }
+
     const result = await collections.holidays.updateOne(
-      { _id: new ObjectId(payload.holidayId) },
-      {
-        $set: {
-          title: payload.title,
-          date: new Date(payload.date),
-          description: payload.description,
-          status: payload.status,
-          updatedBy: hrId,
-          updatedAt: new Date(),
-        },
-      }
+      { _id: new ObjectId(holidayId) },
+      { $set: updateDoc }
     );
 
     if (result.matchedCount === 0) {
@@ -145,7 +171,7 @@ export const updateHoliday = async (companyId, hrId, payload) => {
 
     return {
       done: true,
-      data: { holidayId: payload.holidayId, ...payload },
+      data: { _id: holidayId, ...payload },
       message: "Holiday updated successfully",
     };
   } catch (error) {
