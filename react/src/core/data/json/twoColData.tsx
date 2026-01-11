@@ -490,24 +490,8 @@ export const TowColData = [
               },
               {
                 menuValue: 'Tickets',
-                route: routes.ticketList,
-                hasSubRoute: true,
-                showSubRoute: false,
-                customSubmenuTwo: true,
+                route: routes.tickets,
                 base: 'tickets',
-                subMenusTwo: [
-                  {
-                    menuValue: 'Tickets',
-                    route: routes.ticketList,
-                    base: 'tickets',
-                    base2:'ticket-list'
-                  },
-                  {
-                    menuValue: 'Tickets Detail',
-                    route: routes.ticketDetails,
-                    base: 'ticket-details',
-                  },
-                ],
               },
   
               {

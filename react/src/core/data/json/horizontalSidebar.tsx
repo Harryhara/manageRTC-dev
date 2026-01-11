@@ -436,20 +436,8 @@ export const HorizontalSidebarData = [
           },
           {
             menuValue: "Tickets",
-            base: "ticket",
-            customSubmenuTwo: true,
-            subMenusTwo: [
-              {
-                menuValue: "Tickets",
-                route: routes.ticketList,
-                base: "ticket-list",
-              },
-              {
-                menuValue: "Tickets Detail",
-                route: routes.ticketDetails,
-                base: "ticket-details",
-              },
-            ],
+            route: routes.tickets,
+            base: "tickets",
           },
           {
             menuValue: "Holidays",
@@ -790,20 +778,8 @@ export const HorizontalSidebarData = [
               },
               {
                 menuValue: 'Tickets',
-                base: 'ticket',
-                customSubmenuTwo: true,
-                subMenusTwo: [
-                  {
-                    menuValue: 'Tickets',
-                    route: routes.ticketList,
-                    base: 'ticket-list',
-                  },
-                  {
-                    menuValue: 'Tickets Detail',
-                    route: routes.ticketDetails,
-                    base: 'ticket-details',
-                  },
-                ],
+                route: routes.tickets,
+                base: 'tickets',
               },
               {
                 menuValue: 'Holidays',

@@ -506,24 +506,13 @@ const useSidebarData = () => {
             },
             {
               label: "Tickets",
-              link: "ticketList",
-              submenu: true,
+              link: routes.tickets,
+              base: "tickets",
+              submenu: false,
               showSubRoute: false,
               icon: "ticket",
-              base: "tickets",
               materialicons: "leaderboard",
-              submenuItems: [
-                {
-                  label: "Tickets",
-                  link: routes.tickets,
-                  base: "ticket-list",
-                },
-                {
-                  label: "Tickets Detail",
-                  link: routes.ticketDetails,
-                  base: "ticket-details",
-                },
-              ],
+              submenuItems: [],
             },
             {
               label: "Holidays",
@@ -2479,24 +2468,13 @@ const useSidebarData = () => {
             },
             {
               label: "Tickets",
-              link: "ticketList",
-              submenu: true,
+              link: routes.tickets,
+              base: "tickets",
+              submenu: false,
               showSubRoute: false,
               icon: "ticket",
-              base: "tickets",
               materialicons: "leaderboard",
-              submenuItems: [
-                {
-                  label: "Tickets",
-                  link: routes.tickets,
-                  base: "ticket-list",
-                },
-                {
-                  label: "Tickets Detail",
-                  link: routes.ticketDetails,
-                  base: "ticket-details",
-                },
-              ],
+              submenuItems: [],
             },
             {
               label: "Holidays",
@@ -3426,24 +3404,13 @@ const useSidebarData = () => {
             },
             {
               label: "Tickets",
-              link: "ticketList",
-              submenu: true,
+              link: routes.tickets,
+              base: "tickets",
+              submenu: false,
               showSubRoute: false,
               icon: "ticket",
-              base: "tickets",
               materialicons: "leaderboard",
-              submenuItems: [
-                {
-                  label: "Tickets",
-                  link: routes.tickets,
-                  base: "ticket-list",
-                },
-                {
-                  label: "Tickets Detail",
-                  link: routes.ticketDetails,
-                  base: "ticket-details",
-                },
-              ],
+              submenuItems: [],
             },
             {
               label: "Holidays",
