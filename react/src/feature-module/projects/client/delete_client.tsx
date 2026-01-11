@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSocket } from '../../../SocketContext';
 import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import { hideModal, cleanupModalBackdrops } from '../../../utils/modalUtils';
 
 interface Client {
   _id: string;
@@ -71,28 +72,8 @@ const DeleteClient = () => {
   };
 
   const closeModal = () => {
-    const modal = document.getElementById('delete_client');
-    if (!modal) return;
-
-    try {
-      // Method 1: Try Bootstrap Modal API
-      if ((window as any).bootstrap && (window as any).bootstrap.Modal) {
-        const bootstrapModal = (window as any).bootstrap.Modal.getInstance(modal);
-        if (bootstrapModal) {
-          bootstrapModal.hide();
-          return;
-        }
-      }
-
-      // Method 2: Try jQuery Bootstrap Modal
-      if ((window as any).$ && (window as any).$.fn && (window as any).$.fn.modal) {
-        (window as any).$('#delete_client').modal('hide');
-        return;
-      }
-
-      // Method 3: Manual modal closing (fallback)
-      modal.style.display = 'none';
-      modal.classList.remove('show');
+    hideModal('delete_client');
+  };
       modal.setAttribute('aria-hidden', 'true');
       modal.removeAttribute('aria-modal');
       

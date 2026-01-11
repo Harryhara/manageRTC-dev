@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSocket } from '../../SocketContext';
 import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import { hideModal, cleanupModalBackdrops } from '../../utils/modalUtils';
 
 interface Activity {
   _id: string;
@@ -28,23 +29,7 @@ const DeleteActivity = ({ activity, onActivityDeleted }: DeleteActivityProps) =>
 
   // Helper to close modal
   const closeModal = () => {
-    const modal = document.getElementById('delete_activity');
-    if (modal) {
-      const bootstrapModal = (window as any).bootstrap?.Modal?.getInstance(modal);
-      if (bootstrapModal) {
-        bootstrapModal.hide();
-      } else {
-        // Fallback: forcibly hide modal if Bootstrap instance is missing
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
-        modal.classList.remove('show');
-        const backdrops = document.querySelectorAll('.modal-backdrop');
-        backdrops.forEach(backdrop => backdrop.remove());
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-      }
-    }
+    hideModal('delete_activity');
   };
 
   // Reset state when activity changes

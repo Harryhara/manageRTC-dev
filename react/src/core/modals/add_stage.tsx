@@ -3,6 +3,7 @@ import ImageWithBasePath from '../common/imageWithBasePath';
 import React, { useState } from 'react';
 import { useSocket } from '../../SocketContext';
 import { Socket } from 'socket.io-client';
+import { hideModal, cleanupModalBackdrops } from '../../utils/modalUtils';
 
 const AddStage = () => {
   const [stageName, setStageName] = useState('');
@@ -11,11 +12,7 @@ const AddStage = () => {
   const companyId = window.localStorage.getItem('companyId') || 'demoCompanyId';
 
   const closeModal = () => {
-    const modal = document.getElementById('add_stage');
-    if (modal && (window as any).bootstrap?.Modal) {
-      const bootstrapModal = new (window as any).bootstrap.Modal(modal);
-      bootstrapModal.hide();
-    }
+    hideModal('add_stage');
   };
 
   const handleSubmit = (e: React.FormEvent) => {

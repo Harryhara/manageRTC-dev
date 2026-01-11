@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSocket } from '../../../SocketContext';
 import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import { hideModal, cleanupModalBackdrops } from '../../../utils/modalUtils';
 
 interface Job {
   _id: string;
@@ -84,24 +85,8 @@ const DeleteJob = () => {
   };
 
   const closeModal = () => {
-    const modal = document.getElementById('delete_job');
-    if (!modal) return;
-
-    try {
-      // Method 1: Try Bootstrap Modal API
-      if ((window as any).bootstrap && (window as any).bootstrap.Modal) {
-        const bootstrapModal = (window as any).bootstrap.Modal.getInstance(modal);
-        if (bootstrapModal) {
-          bootstrapModal.hide();
-          return;
-        }
-      }
-
-      // Method 2: Try jQuery Bootstrap Modal
-      if ((window as any).$ && (window as any).$.fn && (window as any).$.fn.modal) {
-        (window as any).$('#delete_job').modal('hide');
-        return;
-      }
+    hideModal('delete_job');
+  };
 
       // Method 3: Manual modal closing (fallback)
       modal.style.display = 'none';

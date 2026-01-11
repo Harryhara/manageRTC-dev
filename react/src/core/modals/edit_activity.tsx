@@ -3,6 +3,7 @@ import { DatePicker } from 'antd';
 import { useSocket } from '../../SocketContext';
 import { Socket } from 'socket.io-client';
 import { message } from 'antd';
+import { hideModal, cleanupModalBackdrops } from '../../utils/modalUtils';
 import dayjs, { Dayjs } from 'dayjs';
 import { Link } from 'react-router-dom';
 import CommonSelect from '../common/commonSelect';
@@ -237,27 +238,9 @@ const EditActivity = () => {
 
   // Close modal
   const closeModal = () => {
-    const modal = document.getElementById('edit_activity');
-    if (!modal) return;
-
-    try {
-      // Method 1: Try Bootstrap Modal API
-      if ((window as any).bootstrap && (window as any).bootstrap.Modal) {
-        const bootstrapModal = (window as any).bootstrap.Modal.getInstance(modal);
-        if (bootstrapModal) {
-          bootstrapModal.hide();
-          return;
-        }
-      }
-
-      // Method 2: Try jQuery Bootstrap Modal
-      if ((window as any).$ && (window as any).$.fn && (window as any).$.fn.modal) {
-        (window as any).$('#edit_activity').modal('hide');
-        return;
-      }
-
-      // Method 3: Manual modal closing (fallback)
-      modal.style.display = 'none';
+  const closeModal = () => {
+    hideModal('edit_activity');
+  };
       modal.classList.remove('show');
       modal.setAttribute('aria-hidden', 'true');
       modal.removeAttribute('aria-modal');

@@ -6,6 +6,7 @@ import { beforeuse, company, contacts, deals } from '../common/selectoption/sele
 import { label } from 'yet-another-react-lightbox/*';
 import { useSocket } from '../../SocketContext';
 import { Socket } from 'socket.io-client';
+import { hideModal, cleanupModalBackdrops } from '../../utils/modalUtils';
 import dayjs from 'dayjs';
 
 const AddActivity = () => {
@@ -163,21 +164,7 @@ const AddActivity = () => {
 
     // Close modal
     const closeModal = () => {
-        const modal = document.getElementById('add_activity');
-        if (modal) {
-            const bootstrapModal = (window as any).bootstrap?.Modal?.getInstance(modal);
-            if (bootstrapModal) {
-                bootstrapModal.hide();
-            } else {
-                modal.style.display = 'none';
-                modal.setAttribute('aria-hidden', 'true');
-                modal.classList.remove('show');
-                const backdrops = document.querySelectorAll('.modal-backdrop');
-                backdrops.forEach(backdrop => backdrop.remove());
-                document.body.classList.remove('modal-open');
-                document.body.style.overflow = '';
-            }
-        }
+        hideModal('add_activity');
     };
 
     // Reset form when modal opens

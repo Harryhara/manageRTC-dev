@@ -4,6 +4,7 @@ import { useSocket } from '../../SocketContext';
 import { Socket } from 'socket.io-client';
 import dayjs, { Dayjs } from 'dayjs';
 import { toast } from 'react-toastify';
+import { hideModal, cleanupModalBackdrops } from '../../utils/modalUtils';
 import { Link } from 'react-router-dom';
 import AddStage from './add_stage';
 
@@ -140,24 +141,10 @@ const EditPipeline = ({ pipeline, onPipelineUpdated }: EditPipelineProps) => {
 
   // Helper to close modal (matches add_pipeline.tsx)
   const closeModal = () => {
-    const modal = document.getElementById('edit_pipeline');
-    if (modal) {
-      const bootstrapModal = (window as any).bootstrap?.Modal?.getInstance(modal);
-      if (bootstrapModal) {
-        bootstrapModal.hide();
-      } else {
-        // Fallback: forcibly hide modal if Bootstrap instance is missing
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
-        modal.classList.remove('show');
-        const backdrops = document.querySelectorAll('.modal-backdrop');
-        backdrops.forEach(backdrop => backdrop.remove());
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-      }
-      // Reset the ref when modal is closed
-      modalOpenedRef.current = null;
+    hideModal('edit_pipeline');
+    // Reset the ref when modal is closed
+    modalOpenedRef.current = null;
+  };
     }
   };
 

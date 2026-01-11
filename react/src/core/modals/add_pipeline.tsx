@@ -4,6 +4,7 @@ import { Socket } from 'socket.io-client';
 import { DatePicker } from 'antd';
 import { Link } from 'react-router-dom';
 import { toast } from 'react-toastify';
+import { hideModal, cleanupModalBackdrops } from '../../utils/modalUtils';
 import CommonSelect from '../common/commonSelect';
 import { beforeuse, company, contacts, deals, guests, owner, owners, status } from '../common/selectoption/selectoption';
 import { label } from 'yet-another-react-lightbox/*';
@@ -62,22 +63,8 @@ const AddPipeline = () => {
 
   // Helper to close modal
   const closeModal = () => {
-    const modal = document.getElementById('add_pipeline');
-    if (modal) {
-      const bootstrapModal = (window as any).bootstrap?.Modal?.getOrCreateInstance(modal);
-      if (bootstrapModal) {
-        bootstrapModal.hide();
-      } else {
-        // Fallback: forcibly hide modal if Bootstrap instance is missing
-        modal.style.display = 'none';
-        modal.setAttribute('aria-hidden', 'true');
-        modal.classList.remove('show');
-        const backdrops = document.querySelectorAll('.modal-backdrop');
-        backdrops.forEach(backdrop => backdrop.remove());
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-      }
+    hideModal('add_pipeline');
+  };
     }
   };
 
