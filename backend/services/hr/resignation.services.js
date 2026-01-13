@@ -125,15 +125,33 @@ const getResignations = async (companyId,{ type, startDate, endDate } = {}) => {
       { $match: dateFilter },
       { $sort: { noticeDate: -1, _id: -1 } },
       {
+        $lookup: {
+          from: "employees",
+          localField: "employeeId",
+          foreignField: "employeeId",
+          as: "employeeData"
+        }
+      },
+      {
+        $addFields: {
+          employee_id: { $arrayElemAt: ["$employeeData._id", 0] },
+          employeeImage: { $arrayElemAt: ["$employeeData.avatarUrl", 0] },
+          designation: { $arrayElemAt: ["$employeeData.designation", 0] }
+        }
+      },
+      {
         $project: {
           _id: 0,
           employeeName: 1,
           employeeId: 1,
+          employee_id: { $toString: "$employee_id" },
+          employeeImage: 1,
+          designation: 1,
           reason: 1,
           department: 1,
           departmentId: 1,
           resignationDate: 1, 
-          noticeDate: 1,        // yyyy-mm-dd string
+          noticeDate: 1,
           resignationId: 1,
           created_at: 1,
         },

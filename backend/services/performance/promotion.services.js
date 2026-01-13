@@ -415,10 +415,33 @@ export const getAllPromotions = async (companyId, filters = {}) => {
       }
     }
     
-    const promotions = await collections.promotions
-      .find(query)
-      .sort({ promotionDate: -1, createdAt: -1 })
-      .toArray();
+    // Use aggregation to lookup employee data and include employeeId and avatarUrl
+    const promotions = await collections.promotions.aggregate([
+      { $match: query },
+      { $sort: { promotionDate: -1, createdAt: -1 } },
+      {
+        $lookup: {
+          from: "employees",
+          let: { empId: { $toObjectId: "$employee.id" } },
+          pipeline: [
+            { $match: { $expr: { $eq: ["$_id", "$$empId"] } } },
+            { $project: { employeeId: 1, avatarUrl: 1 } }
+          ],
+          as: "employeeData"
+        }
+      },
+      {
+        $addFields: {
+          "employee.employeeId": { $arrayElemAt: ["$employeeData.employeeId", 0] },
+          "employee.image": { $arrayElemAt: ["$employeeData.avatarUrl", 0] }
+        }
+      },
+      {
+        $project: {
+          employeeData: 0
+        }
+      }
+    ]).toArray();
     
     return { done: true, data: promotions };
   } catch (error) {

@@ -4,6 +4,7 @@ import Table from "../../core/common/dataTable/index";
 import { all_routes } from "../router/all_routes";
 import ImageWithBasePath from "../../core/common/imageWithBasePath";
 import CommonSelect from "../../core/common/commonSelect";
+import EmployeeNameCell from "../../core/common/EmployeeNameCell";
 import { DatePicker } from "antd";
 import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
@@ -13,9 +14,6 @@ import { useModalCleanup } from "../../core/hooks/useModalCleanup";
 import dayjs, { Dayjs } from "dayjs";
 import { Socket } from "socket.io-client";
 import PromotionDetailsModal from "../../core/modals/PromotionDetailsModal";
-
-// Declare Bootstrap type for modal
-declare const bootstrap: any;
 
 interface Employee {
   id: string;
@@ -47,6 +45,7 @@ interface Promotion {
     id: string;
     name: string;
     image: string;
+    employeeId?: string; // Add employeeId to the interface
   };
   promotionFrom: {
     department: {
@@ -144,10 +143,10 @@ const Promotion = () => {
     console.log("[Promotion] closeModalReliably called for:", modalId);
     
     try {
-      // Method 1: Try Bootstrap Modal API if available
+      // Method 1: Try Bootstrap Modal API if available via window.bootstrap
       const modalElement = document.getElementById(modalId);
-      if (modalElement && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
-        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+      if (modalElement && typeof (window as any).bootstrap !== 'undefined' && (window as any).bootstrap.Modal) {
+        const modalInstance = (window as any).bootstrap.Modal.getInstance(modalElement);
         if (modalInstance) {
           console.log("[Promotion] Closing modal using Bootstrap instance");
           modalInstance.hide();
@@ -1003,69 +1002,70 @@ const Promotion = () => {
     return "";
   };
 
-  const data = promotions.map(promotion => ({
-    key: promotion._id,
-    Promoted_Employee: promotion.employee.name,
-    Image: promotion.employee.image,
-    Department: promotion.promotionFrom.department.name,
-    Designation_From: promotion.promotionFrom.designation.name,
-    Designation_To: promotion.promotionTo.designation.name,
-    Promotion_Date: dayjs(promotion.promotionDate).format("DD MMM YYYY"),
-    _original: promotion,
-  }));
+  const data = promotions.map(promotion => {
+    // Look up the actual employee from employees array to get the correct employeeId
+    const employee = employees.find(emp => emp.id === promotion.employee.id);
+    const displayEmployeeId = promotion.employee.employeeId || employee?.employeeId || promotion.employee.id;
+    
+    return {
+      key: promotion._id,
+      Employee_ID: displayEmployeeId,
+      Promoted_Employee: promotion.employee.name,
+      Image: promotion.employee.image,
+      Department: promotion.promotionFrom.department.name,
+      Designation_From: promotion.promotionFrom.designation.name,
+      Designation_To: promotion.promotionTo.designation.name,
+      Promotion_Date: dayjs(promotion.promotionDate).format("DD MMM YYYY"),
+      _original: promotion,
+    };
+  });
 
   const columns = [
     {
-      title: "Promoted Employee",
-      dataIndex: "Promoted_Employee",
-      render: (text: string, record: any) => (
-        <div className="d-flex align-items-center">
-          <div className="avatar avatar-md me-2">
-            {record.Image ? (
-              <ImageWithBasePath
-                src={record.Image}
-                className="rounded-circle"
-                alt="user"
-              />
-            ) : (
-              <div className="avatar-title bg-primary-transparent rounded-circle">
-                {text.charAt(0)}
-              </div>
-            )}
-          </div>
-          <Link
-            to={`/employees/${record._original.employee.id}`}
-            className="fw-medium text-dark"
-          >
-            {text}
-          </Link>
-        </div>
+      title: "Employee ID",
+      dataIndex: "Employee_ID",
+      render: (text: string) => (
+        <span className="fw-medium">{text}</span>
       ),
       sorter: (a: any, b: any) =>
-        a.Promoted_Employee.length - b.Promoted_Employee.length,
+        a.Employee_ID.localeCompare(b.Employee_ID),
+    },
+    {
+      title: "Name",
+      dataIndex: "Promoted_Employee",
+      render: (text: string, record: any) => (
+        <EmployeeNameCell
+          name={text}
+          image={record.Image}
+          employeeId={record._original.employee.id}
+          avatarTheme="primary"
+        />
+      ),
+      sorter: (a: any, b: any) =>
+        a.Promoted_Employee.localeCompare(b.Promoted_Employee),
     },
     {
       title: "Department",
       dataIndex: "Department",
-      sorter: (a: any, b: any) => a.Department.length - b.Department.length,
+      sorter: (a: any, b: any) => a.Department.localeCompare(b.Department),
     },
     {
       title: "Designation From",
       dataIndex: "Designation_From",
       sorter: (a: any, b: any) =>
-        a.Designation_From.length - b.Designation_From.length,
+        a.Designation_From.localeCompare(b.Designation_From),
     },
     {
       title: "Designation To",
       dataIndex: "Designation_To",
       sorter: (a: any, b: any) =>
-        a.Designation_To.length - b.Designation_To.length,
+        a.Designation_To.localeCompare(b.Designation_To),
     },
     {
       title: "Promotion Date",
       dataIndex: "Promotion_Date",
       sorter: (a: any, b: any) =>
-        a.Promotion_Date.length - b.Promotion_Date.length,
+        a.Promotion_Date.localeCompare(b.Promotion_Date),
     },
     {
       title: "",
@@ -1075,9 +1075,11 @@ const Promotion = () => {
           <Link
             to="#"
             className="me-2"
-            onClick={() => handleViewClick(record._original)}
+            onClick={(e) => {
+              e.preventDefault();
+              handleViewClick(record._original);
+            }}
             data-bs-toggle="modal"
-            data-inert={true}
             data-bs-target="#view_promotion"
           >
             <i className="ti ti-eye" />
@@ -1085,20 +1087,22 @@ const Promotion = () => {
           <Link
             to="#"
             className="me-2"
-            onClick={() => handleEditClick(record._original)}
+            onClick={(e) => {
+              e.preventDefault();
+              handleEditClick(record._original);
+            }}
+            data-bs-toggle="modal"
+            data-bs-target="#edit_promotion"
           >
-            <i
-              className="ti ti-edit"
-              data-bs-toggle="modal"
-              data-inert={true}
-              data-bs-target="#edit_promotion"
-            />
+            <i className="ti ti-edit" />
           </Link>
           <Link
             to="#"
-            onClick={() => handleDeleteClick(record._original._id)}
+            onClick={(e) => {
+              e.preventDefault();
+              handleDeleteClick(record._original._id);
+            }}
             data-bs-toggle="modal"
-            data-inert={true}
             data-bs-target="#delete_modal"
           >
             <i className="ti ti-trash" />
@@ -1136,7 +1140,6 @@ const Promotion = () => {
                   to="#"
                   className="btn btn-primary d-flex align-items-center"
                   data-bs-toggle="modal"
-                  data-inert={true}
                   data-bs-target="#new_promotion"
                 >
                   <i className="ti ti-circle-plus me-2" />

@@ -4,6 +4,7 @@ import { all_routes } from "../../router/all_routes";
 import { Link, useNavigate } from "react-router-dom";
 import Table from "../../../core/common/dataTable/index";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import EmployeeNameCell from "../../../core/common/EmployeeNameCell";
 import PredefinedDateRanges from "../../../core/common/datePicker";
 import { employee_list_details } from "../../../core/data/json/employees_list_details";
 import { DatePicker } from "antd";
@@ -675,23 +676,13 @@ const EmployeeList = () => {
       dataIndex: "name",
       render: (text: string, record: any) => {
         return (
-          <div className="d-flex align-items-center">
-            <Link to={`/employees/${record._id}`} className="avatar avatar-md">
-              <img
-                src={record.avatarUrl || "assets/img/favicon.png"}
-                className="img-fluid rounded-circle"
-                alt="img"
-              />
-            </Link>
-            <div className="ms-2">
-              <p className="text-dark mb-0">
-                <Link to={`/employees/${record._id}`}>
-                  {record.firstName} {record.lastName}
-                </Link>
-              </p>
-              <span className="fs-12">{record.role}</span>
-            </div>
-          </div>
+          <EmployeeNameCell
+            name={`${record.firstName} ${record.lastName}`}
+            image={record.avatarUrl}
+            employeeId={record._id}
+            secondaryText={record.role}
+            avatarTheme="primary"
+          />
         );
       },
       sorter: (a: any, b: any) => (a.firstName || "").localeCompare(b.firstName || ""),

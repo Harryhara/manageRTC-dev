@@ -4,6 +4,7 @@ import Table from "../../core/common/dataTable/index";
 import { all_routes } from "../router/all_routes";
 import ImageWithBasePath from "../../core/common/imageWithBasePath";
 import CommonSelect from "../../core/common/commonSelect";
+import EmployeeNameCell from "../../core/common/EmployeeNameCell";
 import { DatePicker } from "antd";
 import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import { useSocket } from "../../SocketContext";
@@ -12,11 +13,17 @@ import { format, parse } from "date-fns";
 import { EditOutlined, DeleteOutlined } from "@ant-design/icons";
 import { Modal } from "antd";
 import dayjs from "dayjs";
+import ResignationDetailsModal from "../../core/modals/ResignationDetailsModal";
+import { toast } from "react-toastify";
 
 type ResignationRow = {
   employeeName: string;
   employeeId: string;
+  employee_id?: string; // Database ID for navigation
+  employeeImage?: string;
   department: string;
+  departmentId: string;
+  designation?: string;
   reason: string;
   noticeDate: string;
   resignationDate: string; // already formatted by backend like "12 Sep 2025"
@@ -46,6 +53,9 @@ const Resignation = () => {
     endDate?: string;
   }>({});
   const [editing, setEditing] = useState<any>(null);
+
+  // State for viewing resignation details
+  const [viewingResignation, setViewingResignation] = useState<ResignationRow | null>(null);
 
   // Controlled edit form data
   const [editForm, setEditForm] = useState({
@@ -134,6 +144,24 @@ const Resignation = () => {
     resignationDate: "",
   });
 
+  // Validation errors for Add Resignation
+  const [addErrors, setAddErrors] = useState({
+    departmentId: "",
+    employeeId: "",
+    reason: "",
+    noticeDate: "",
+    resignationDate: "",
+  });
+
+  // Validation errors for Edit Resignation
+  const [editErrors, setEditErrors] = useState({
+    departmentId: "",
+    employeeId: "",
+    reason: "",
+    noticeDate: "",
+    resignationDate: "",
+  });
+
   const confirmDelete = (onConfirm: () => void) => {
     Modal.confirm({
       title: null,
@@ -191,8 +219,10 @@ const Resignation = () => {
       setRows(res.data || []);
     } else {
       setRows([]);
-      // optionally toast error
-      // toast.error(res?.message || "Failed to fetch resignations");
+      console.error("Failed to fetch resignations:", res?.message);
+      if (res?.message) {
+        toast.error(res.message);
+      }
     }
     setLoading(false);
   }, []);
@@ -236,23 +266,48 @@ const Resignation = () => {
   }, []);
 
   const onAddResponse = useCallback((res: any) => {
-    // feedback only; list and stats will be broadcast from controller
-    if (!res?.done) {
-      // toast.error(res?.message || "Failed to add resignation");
+    if (res?.done) {
+      toast.success("Resignation added successfully");
+      // Close modal
+      const modalElement = document.getElementById("add_resignation");
+      if (modalElement) {
+        const modal = window.bootstrap?.Modal?.getInstance(modalElement);
+        if (modal) modal.hide();
+      }
+    } else {
+      console.error("Failed to add resignation:", res?.message);
+      if (res?.message) {
+        toast.error(res.message);
+      }
     }
   }, []);
 
   const onUpdateResponse = useCallback((res: any) => {
-    if (!res?.done) {
-      // toast.error(res?.message || "Failed to update resignation");
+    if (res?.done) {
+      toast.success("Resignation updated successfully");
+      // Close modal
+      const modalElement = document.getElementById("edit_resignation");
+      if (modalElement) {
+        const modal = window.bootstrap?.Modal?.getInstance(modalElement);
+        if (modal) modal.hide();
+      }
+    } else {
+      console.error("Failed to update resignation:", res?.message);
+      if (res?.message) {
+        toast.error(res.message);
+      }
     }
   }, []);
 
   const onDeleteResponse = useCallback((res: any) => {
     if (res?.done) {
+      toast.success("Resignation deleted successfully");
       setSelectedKeys([]);
     } else {
-      // toast.error(res?.message || "Failed to delete");
+      console.error("Failed to delete resignation:", res?.message);
+      if (res?.message) {
+        toast.error(res.message);
+      }
     }
   }, []);
 
@@ -307,7 +362,7 @@ const Resignation = () => {
       const payload: any = { type };
       if (type === "custom" && range?.startDate && range?.endDate) {
         payload.startDate = range.startDate;
-        payload.endDate = range.endDate;
+        payload.endDate = range?.endDate;
       }
       socket.emit("hr/resignation/resignationlist", payload);
     },
@@ -324,28 +379,27 @@ const Resignation = () => {
   };
 
   const handleAddSave = () => {
-    if (!socket) return;
+    console.log("[Resignation] handleAddSave called");
 
-    // basic validation
-    if (
-      !addForm.employeeId ||
-      !addForm.employeeName ||
-      !addForm.noticeDate ||
-      !addForm.reason ||
-      !addForm.resignationDate ||
-      !addForm.department
-    ) {
-      // toast.warn("Please fill required fields");
+    // Validate form first
+    if (!validateAddForm()) {
+      console.log("[Resignation] Validation failed");
       return;
     }
+
+    if (!socket) return;
 
     const noticeIso = toIsoFromDDMMYYYY(addForm.noticeDate);
     if (!noticeIso) {
-      // toast.error("Invalid notice date");
+      setAddErrors(prev => ({ ...prev, noticeDate: "Invalid notice date format" }));
       return;
     }
+    
     const resIso = toIsoFromDDMMYYYY(addForm.resignationDate);
-    if (!resIso) return;
+    if (!resIso) {
+      setAddErrors(prev => ({ ...prev, resignationDate: "Invalid resignation date format" }));
+      return;
+    }
 
     const payload = {
       employeeName: addForm.employeeName,
@@ -357,44 +411,56 @@ const Resignation = () => {
       resignationDate: resIso,
     };
 
+    console.log("[Resignation] Emitting add-resignation with payload:", payload);
     socket.emit("hr/resignation/add-resignation", payload);
-    // modal has data-bs-dismiss; optional: reset form
+    
+    // Reset form after successful submission
     setAddForm({
       employeeName: "",
       employeeId: "",
       department: "",
       departmentId: "",
       reason: "",
-      noticeDate: "", // YYYY-MM-DD from DatePicker
+      noticeDate: "",
       resignationDate: "",
     });
+    
+    // Clear errors
+    setAddErrors({
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    });
+    
+    // Refresh the list
     socket.emit("hr/resignation/resignationlist", { type: "alltime" });
     socket.emit("hr/resignation/resignation-details");
   };
 
   const handleEditSave = () => {
-    if (!socket) return;
+    console.log("[Resignation] handleEditSave called");
 
-    // basic validation
-    if (
-      !editForm.employeeId ||
-      !editForm.employeeName ||
-      !editForm.reason ||
-      !editForm.noticeDate ||
-      !editForm.department ||
-      !editForm.resignationDate
-    ) {
-      // toast.warn("Please fill required fields");
+    // Validate form first
+    if (!validateEditForm()) {
+      console.log("[Resignation] Validation failed");
       return;
     }
+
+    if (!socket) return;
 
     const noticeIso = toIsoFromDDMMYYYY(editForm.noticeDate);
     if (!noticeIso) {
-      // toast.error("Invalid notice date");
+      setEditErrors(prev => ({ ...prev, noticeDate: "Invalid notice date format" }));
       return;
     }
+    
     const resIso = toIsoFromDDMMYYYY(editForm.resignationDate);
-    if (!resIso) return;
+    if (!resIso) {
+      setEditErrors(prev => ({ ...prev, resignationDate: "Invalid resignation date format" }));
+      return;
+    }
 
     const payload = {
       employeeName: editForm.employeeName,
@@ -407,18 +473,31 @@ const Resignation = () => {
       resignationId: editForm.resignationId,
     };
 
+    console.log("[Resignation] Emitting update-resignation with payload:", payload);
     socket.emit("hr/resignation/update-resignation", payload);
-    // modal has data-bs-dismiss; optional: reset form
+    
+    // Reset form after successful submission
     setEditForm({
       employeeName: "",
       employeeId: "",
       department: "",
       departmentId: "",
       reason: "",
-      noticeDate: "", // YYYY-MM-DD from DatePicker
+      noticeDate: "",
       resignationDate: "",
       resignationId: "",
     });
+    
+    // Clear errors
+    setEditErrors({
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    });
+    
+    // Refresh the list
     socket.emit("hr/resignation/resignationlist", { type: "alltime" });
     socket.emit("hr/resignation/resignation-details");
   };
@@ -474,6 +553,8 @@ const Resignation = () => {
       employeeName: "",
       employeeId: "",
     });
+    // Clear department and dependent field errors
+    setAddErrors(prev => ({ ...prev, departmentId: "", employeeId: "" }));
     if (opt?.value) {
       fetchEmployeesByDepartment(opt.value);
     }
@@ -488,17 +569,178 @@ const Resignation = () => {
       employeeName: "",
       employeeId: "",
     });
+    // Clear department and dependent field errors
+    setEditErrors(prev => ({ ...prev, departmentId: "", employeeId: "" }));
     if (opt?.value) {
       fetchEmployeesByDepartment(opt.value);
     }
   };
 
+  // Validate Add Resignation form
+  const validateAddForm = (): boolean => {
+    const errors = {
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    };
+
+    let isValid = true;
+
+    if (!addForm.departmentId || addForm.departmentId === "") {
+      errors.departmentId = "Please select a department";
+      isValid = false;
+    }
+
+    if (!addForm.employeeId || addForm.employeeId === "") {
+      errors.employeeId = "Please select a resigning employee";
+      isValid = false;
+    }
+
+    if (!addForm.reason || addForm.reason.trim() === "") {
+      errors.reason = "Please enter a reason for resignation";
+      isValid = false;
+    }
+
+    if (!addForm.noticeDate || addForm.noticeDate === "") {
+      errors.noticeDate = "Please select a notice date";
+      isValid = false;
+    }
+
+    if (!addForm.resignationDate || addForm.resignationDate === "") {
+      errors.resignationDate = "Please select a resignation date";
+      isValid = false;
+    }
+
+    // Date validation: resignation date should be after or equal to notice date
+    if (addForm.noticeDate && addForm.resignationDate) {
+      const noticeIso = toIsoFromDDMMYYYY(addForm.noticeDate);
+      const resignationIso = toIsoFromDDMMYYYY(addForm.resignationDate);
+      
+      if (noticeIso && resignationIso) {
+        const noticeDate = new Date(noticeIso);
+        const resignationDate = new Date(resignationIso);
+        
+        if (resignationDate < noticeDate) {
+          errors.resignationDate = "Resignation date cannot be earlier than notice date";
+          isValid = false;
+        }
+      }
+    }
+
+    setAddErrors(errors);
+    return isValid;
+  };
+
+  // Validate Edit Resignation form
+  const validateEditForm = (): boolean => {
+    const errors = {
+      departmentId: "",
+      employeeId: "",
+      reason: "",
+      noticeDate: "",
+      resignationDate: "",
+    };
+
+    let isValid = true;
+
+    if (!editForm.departmentId || editForm.departmentId === "") {
+      errors.departmentId = "Please select a department";
+      isValid = false;
+    }
+
+    if (!editForm.employeeId || editForm.employeeId === "") {
+      errors.employeeId = "Please select a resigning employee";
+      isValid = false;
+    }
+
+    if (!editForm.reason || editForm.reason.trim() === "") {
+      errors.reason = "Please enter a reason for resignation";
+      isValid = false;
+    }
+
+    if (!editForm.noticeDate || editForm.noticeDate === "") {
+      errors.noticeDate = "Please select a notice date";
+      isValid = false;
+    }
+
+    if (!editForm.resignationDate || editForm.resignationDate === "") {
+      errors.resignationDate = "Please select a resignation date";
+      isValid = false;
+    }
+
+    // Date validation: resignation date should be after or equal to notice date
+    if (editForm.noticeDate && editForm.resignationDate) {
+      const noticeIso = toIsoFromDDMMYYYY(editForm.noticeDate);
+      const resignationIso = toIsoFromDDMMYYYY(editForm.resignationDate);
+      
+      if (noticeIso && resignationIso) {
+        const noticeDate = new Date(noticeIso);
+        const resignationDate = new Date(resignationIso);
+        
+        if (resignationDate < noticeDate) {
+          errors.resignationDate = "Resignation date cannot be earlier than notice date";
+          isValid = false;
+        }
+      }
+    }
+
+    setEditErrors(errors);
+    return isValid;
+  };
+
+  // Handle view resignation details
+  const handleViewClick = (resignation: ResignationRow) => {
+    console.log("[Resignation] View clicked:", resignation);
+    setViewingResignation(resignation);
+  };
+
   // table columns (preserved look, wired to backend fields)
   const columns: any[] = [
     {
-      title: "Resigning Employee",
+      title: "Employee ID",
+      dataIndex: "employeeId",
+      render: (text: string) => (
+        <span className="fw-medium">{text}</span>
+      ),
+      sorter: (a: ResignationRow, b: ResignationRow) =>
+        a.employeeId.localeCompare(b.employeeId),
+    },
+    {
+      title: "Name",
       dataIndex: "employeeName",
-      value: (row: ResignationRow) => row.employeeId,
+      render: (text: string, record: ResignationRow) => {
+        // Extract just the name part if employeeName contains "ID - Name" format
+        const getDisplayName = (employeeName: string): string => {
+          const parts = employeeName.split(' - ');
+          if (parts.length > 1) {
+            return parts.slice(1).join(' - ');
+          }
+          return employeeName;
+        };
+        
+        const displayName = getDisplayName(text);
+        
+        return (
+          <EmployeeNameCell
+            name={displayName}
+            image={record.employeeImage}
+            employeeId={record.employee_id || record.employeeId}
+            avatarTheme="danger"
+          />
+        );
+      },
+      sorter: (a: ResignationRow, b: ResignationRow) => {
+        const getDisplayName = (employeeName: string): string => {
+          const parts = employeeName.split(' - ');
+          if (parts.length > 1) {
+            return parts.slice(1).join(' - ');
+          }
+          return employeeName;
+        };
+        return getDisplayName(a.employeeName).localeCompare(getDisplayName(b.employeeName));
+      },
     },
     {
       title: "Department",
@@ -507,6 +749,16 @@ const Resignation = () => {
     {
       title: "Reason",
       dataIndex: "reason",
+      render: (text: string) => {
+        if (!text) return '-';
+        const maxLength = 50;
+        const truncated = text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+        return (
+          <span title={text} className="d-inline-block" style={{ maxWidth: '250px' }}>
+            {truncated}
+          </span>
+        );
+      },
     },
     {
       title: "Notice Date",
@@ -524,16 +776,28 @@ const Resignation = () => {
         new Date(b.resignationDate).getTime(),
     },
     {
-      title: "               ",
-      dataIndex: "resignationId", // must match your row field
-      render: (id: string, record: ResignationRow) => (
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+      title: "",
+      dataIndex: "actions",
+      render: (_: any, record: ResignationRow) => (
+        <div className="action-icon d-inline-flex">
+          <Link
+            to="#"
+            className="me-2"
+            onClick={(e) => {
+              e.preventDefault();
+              handleViewClick(record);
+            }}
+            data-bs-toggle="modal"
+            data-bs-target="#view_resignation"
+          >
+            <i className="ti ti-eye" />
+          </Link>
           <a
             href="#"
+            className="me-2"
             data-bs-toggle="modal"
             data-bs-target="#edit_resignation"
             onClick={(e) => {
-              // still prefill the form before Bootstrap opens it
               openEditModal(record);
             }}
           >
@@ -544,7 +808,7 @@ const Resignation = () => {
             onClick={(e) => {
               e.preventDefault();
               confirmDelete(() =>
-                socket?.emit("hr/resignation/delete-resignation", [id])
+                socket?.emit("hr/resignation/delete-resignation", [record.resignationId])
               );
             }}
           >
@@ -589,7 +853,6 @@ const Resignation = () => {
                   to="#"
                   className="btn btn-primary d-flex align-items-center"
                   data-bs-toggle="modal"
-                  data-inert={true}
                   data-bs-target="#new_resignation"
                 >
                   <i className="ti ti-circle-plus me-2" />
@@ -685,6 +948,7 @@ const Resignation = () => {
                         value={departmentOptions.find(opt => opt.value === addForm.departmentId) || null}
                         onChange={handleAddDepartmentChange}
                       />
+                      {addErrors.departmentId && <div className="text-danger">{addErrors.departmentId}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -702,19 +966,28 @@ const Resignation = () => {
                           })
                         }
                       />
+                      {addErrors.employeeId && <div className="text-danger">{addErrors.employeeId}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Reason</label>
+                      <div className="d-flex justify-content-between align-items-center mb-1">
+                        <label className="form-label mb-0">Reason</label>
+                        <small className="text-muted">
+                          {addForm.reason.length}/500 characters
+                        </small>
+                      </div>
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={addForm.reason}
+                        maxLength={500}
+                        value={addForm.reason}
                         onChange={(e) =>
                           setAddForm({ ...addForm, reason: e.target.value })
                         }
+                        placeholder="Enter reason for resignation (max 500 characters)"
                       />
+                      {addErrors.reason && <div className="text-danger">{addErrors.reason}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -740,6 +1013,7 @@ const Resignation = () => {
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {addErrors.noticeDate && <div className="text-danger">{addErrors.noticeDate}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -765,6 +1039,7 @@ const Resignation = () => {
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {addErrors.resignationDate && <div className="text-danger">{addErrors.resignationDate}</div>}
                     </div>
                   </div>
                 </div>
@@ -818,6 +1093,7 @@ const Resignation = () => {
                         value={departmentOptions.find(opt => opt.value === editForm.departmentId) || null}
                         onChange={handleEditDepartmentChange}
                       />
+                      {editErrors.departmentId && <div className="text-danger">{editErrors.departmentId}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -837,19 +1113,28 @@ const Resignation = () => {
                           })
                         }
                       />
+                      {editErrors.employeeId && <div className="text-danger">{editErrors.employeeId}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Reason</label>
+                      <div className="d-flex justify-content-between align-items-center mb-1">
+                        <label className="form-label mb-0">Reason</label>
+                        <small className="text-muted">
+                          {editForm.reason.length}/500 characters
+                        </small>
+                      </div>
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={editForm.reason}
+                        maxLength={500}
+                        value={editForm.reason}
                         onChange={(e) =>
                           setEditForm({ ...editForm, reason: e.target.value })
                         }
+                        placeholder="Enter reason for resignation (max 500 characters)"
                       />
+                      {editErrors.reason && <div className="text-danger">{editErrors.reason}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -877,6 +1162,7 @@ const Resignation = () => {
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {editErrors.noticeDate && <div className="text-danger">{editErrors.noticeDate}</div>}
                     </div>
                   </div>
                   <div className="col-md-12">
@@ -904,6 +1190,7 @@ const Resignation = () => {
                           <i className="ti ti-calendar text-gray-7" />
                         </span>
                       </div>
+                      {editErrors.resignationDate && <div className="text-danger">{editErrors.resignationDate}</div>}
                     </div>
                   </div>
                 </div>
@@ -930,6 +1217,9 @@ const Resignation = () => {
         </div>
       </div>
       {/* /Edit Resignation */}
+      {/* View Resignation Details Modal */}
+      <ResignationDetailsModal resignation={viewingResignation} modalId="view_resignation" />
+      {/* /View Resignation Details Modal */}
     </>
   );
 };
