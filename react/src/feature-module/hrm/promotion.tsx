@@ -1,48 +1,1044 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import Table from "../../core/common/dataTable/index";
-import { promotion_table } from "../../core/data/json/promotion_table";
 import { all_routes } from "../router/all_routes";
 import ImageWithBasePath from "../../core/common/imageWithBasePath";
-import {
-  promotionto,
-  promotiontype,
-  termination,
-  terminationtype,
-} from "../../core/common/selectoption/selectoption";
 import CommonSelect from "../../core/common/commonSelect";
 import { DatePicker } from "antd";
 import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
+import { useSocket } from "../../SocketContext";
+import { toast } from "react-toastify";
+import { useModalCleanup } from "../../core/hooks/useModalCleanup";
+import dayjs, { Dayjs } from "dayjs";
+import { Socket } from "socket.io-client";
+import PromotionDetailsModal from "../../core/modals/PromotionDetailsModal";
+
+// Declare Bootstrap type for modal
+declare const bootstrap: any;
+
+interface Employee {
+  id: string;
+  name: string;
+  email: string;
+  image: string;
+  department: string;
+  departmentId: string;
+  designation: string;
+  designationId: string;
+  employeeId: string;
+}
+
+interface Department {
+  _id: string;
+  department: string;
+}
+
+interface Designation {
+  id: string;
+  name: string;
+  level?: number;
+  departmentId?: string;
+}
+
+interface Promotion {
+  _id: string;
+  employee: {
+    id: string;
+    name: string;
+    image: string;
+  };
+  promotionFrom: {
+    department: {
+      id: string;
+      name: string;
+    };
+    designation: {
+      id: string;
+      name: string;
+    };
+  };
+  promotionTo: {
+    department: {
+      id: string;
+      name: string;
+    };
+    designation: {
+      id: string;
+      name: string;
+    };
+  };
+  promotionDate: string;
+  promotionType?: string;
+  reason?: string;
+  notes?: string;
+}
 
 const Promotion = () => {
+  const socket = useSocket() as Socket | null;
+  const { cleanupModals } = useModalCleanup();
+
+  // State management
+  const [promotions, setPromotions] = useState<Promotion[]>([]);
+  const [employees, setEmployees] = useState<Employee[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [designations, setDesignations] = useState<Designation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // Form state for Add Promotion
+  const [newPromotion, setNewPromotion] = useState({
+    sourceDepartmentId: "", // For filtering employees
+    employeeId: "",
+    targetDepartmentId: "", // Department To - where employee is being promoted
+    designationToId: "",
+    promotionDate: null as Dayjs | null,
+    promotionType: "Regular",
+  });
+
+  // Form state for Edit Promotion
+  const [editingPromotion, setEditingPromotion] = useState<Promotion | null>(null);
+  const [editForm, setEditForm] = useState({
+    departmentId: "",
+    designationToId: "",
+    promotionDate: null as Dayjs | null,
+    promotionType: "Regular",
+  });
+
+  // State for deletion
+  const [deletingPromotionId, setDeletingPromotionId] = useState<string | null>(null);
+
+  // State for viewing promotion details
+  const [viewingPromotion, setViewingPromotion] = useState<Promotion | null>(null);
+
+  // Validation errors for Add Promotion
+  const [addErrors, setAddErrors] = useState({
+    sourceDepartmentId: "",
+    employeeId: "",
+    targetDepartmentId: "",
+    designationToId: "",
+    promotionDate: "",
+    promotionType: "",
+  });
+
+  // Track employees already promoted (for duplicate check)
+  const [promotedEmployeeIds, setPromotedEmployeeIds] = useState<Set<string>>(new Set());
+
+  // Validation errors for Edit Promotion
+  const [editErrors, setEditErrors] = useState({
+    departmentId: "",
+    designationToId: "",
+    promotionDate: "",
+    promotionType: "",
+  });
+
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
-    return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
+    return modalElement ? modalElement : document.body;
   };
 
-  const data = promotion_table;
+  /**
+   * Reliable modal closing function with multiple fallback methods
+   * Does not depend on Bootstrap Modal instance
+   */
+  const closeModalReliably = (modalId: string) => {
+    console.log("[Promotion] closeModalReliably called for:", modalId);
+    
+    try {
+      // Method 1: Try Bootstrap Modal API if available
+      const modalElement = document.getElementById(modalId);
+      if (modalElement && typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        if (modalInstance) {
+          console.log("[Promotion] Closing modal using Bootstrap instance");
+          modalInstance.hide();
+          return;
+        }
+      }
+    } catch (error) {
+      console.log("[Promotion] Bootstrap Modal method failed:", error);
+    }
+
+    try {
+      // Method 2: Click the close button
+      const modalElement = document.getElementById(modalId);
+      if (modalElement) {
+        const closeButton = modalElement.querySelector('[data-bs-dismiss="modal"]') as HTMLElement;
+        if (closeButton) {
+          console.log("[Promotion] Closing modal by clicking close button");
+          closeButton.click();
+          return;
+        }
+      }
+    } catch (error) {
+      console.log("[Promotion] Close button method failed:", error);
+    }
+
+    try {
+      // Method 3: Manual DOM manipulation as last resort
+      const modalElement = document.getElementById(modalId);
+      if (modalElement) {
+        console.log("[Promotion] Closing modal using manual DOM manipulation");
+        modalElement.classList.remove('show');
+        modalElement.style.display = 'none';
+        modalElement.setAttribute('aria-hidden', 'true');
+        modalElement.removeAttribute('aria-modal');
+        modalElement.removeAttribute('role');
+        
+        // Remove backdrop
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) {
+          backdrop.remove();
+        }
+        
+        // Remove modal-open class from body
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+      }
+    } catch (error) {
+      console.error("[Promotion] All modal closing methods failed:", error);
+    }
+  };
+
+  // Fetch initial data
+  useEffect(() => {
+    if (!socket) {
+      console.log("[Promotion] Socket not available yet");
+      return;
+    }
+
+    console.log("[Promotion] Socket connected, fetching initial data...");
+    console.log("[Promotion] Socket ID:", socket?.id);
+    console.log("[Promotion] Socket connected:", socket?.connected);
+
+    // Fetch promotions
+    socket.emit("promotion:getAll", {});
+    console.log("[Promotion] Emitted promotion:getAll");
+
+    // Fetch departments for dropdown
+    socket.emit("promotion:getDepartments");
+    console.log("[Promotion] Emitted promotion:getDepartments");
+
+    // Fetch designations for dropdown
+    socket.emit("promotion:getDesignations");
+    console.log("[Promotion] Emitted promotion:getDesignations");
+
+    // Setup socket listeners
+    const handleGetAllResponse = (response: any) => {
+      console.log("[Promotion] Received promotions response:", response);
+      console.log("[Promotion] Response type:", typeof response, "done:", response?.done);
+      if (response.done && response.data) {
+        console.log("[Promotion] Setting promotions, count:", response.data.length);
+        setPromotions(response.data);
+        // Track promoted employee IDs
+        const promotedIds = new Set<string>(response.data.map((p: Promotion) => p.employee.id));
+        setPromotedEmployeeIds(promotedIds);
+      } else {
+        const errorMsg = response.error || "Failed to fetch promotions";
+        console.error("[Promotion] Error fetching promotions:", errorMsg);
+        toast.error(errorMsg);
+      }
+      setLoading(false);
+    };
+
+    const handleGetDepartmentsResponse = (response: any) => {
+      console.log("[Promotion] Received departments response:", response);
+      console.log("[Promotion] Response type:", typeof response, "done:", response?.done);
+      if (response.done && response.data) {
+        console.log("[Promotion] Setting departments, count:", response.data.length);
+        setDepartments(response.data);
+      } else {
+        const errorMsg = response.error || "Failed to fetch departments";
+        console.error("[Promotion] Error fetching departments:", errorMsg);
+        toast.error(errorMsg);
+      }
+    };
+
+    const handleGetEmployeesByDepartmentResponse = (response: any) => {
+      console.log("[Promotion] Received employees-by-department response:", response);
+      console.log("[Promotion] Response type:", typeof response, "done:", response?.done);
+      if (response.done && response.data) {
+        console.log("[Promotion] Setting employees, count:", response.data.length);
+        setEmployees(response.data);
+      } else {
+        const errorMsg = response.error || response.message || "Failed to fetch employees";
+        console.error("[Promotion] Error fetching employees:", errorMsg);
+        setEmployees([]);
+      }
+    };
+
+    const handleGetDesignationsResponse = (response: any) => {
+      console.log("[Promotion] Received designations response:", response);
+      console.log("[Promotion] Response type:", typeof response, "done:", response?.done);
+      if (response.done && response.data) {
+        console.log("[Promotion] Setting designations, count:", response.data.length);
+        setDesignations(response.data);
+      } else {
+        const errorMsg = response.error || "Failed to fetch designations";
+        console.error("[Promotion] Error fetching designations:", errorMsg);
+        toast.error(errorMsg);
+      }
+    };
+
+    const handleGetDesignationsByDepartmentResponse = (response: any) => {
+      console.log("[Promotion] ===== RECEIVED promotion:getDesignationsByDepartment:response:", response);
+      console.log("[Promotion] Response type:", typeof response, "done:", response?.done);
+      if (response.done && response.data) {
+        console.log("[Promotion] ✓ SUCCESS - Setting designations, count:", response.data.length);
+        console.log("[Promotion] Designations data:", response.data.map((d: any) => ({ id: d.id, name: d.name, departmentId: d.departmentId })));
+        setDesignations(response.data);
+      } else {
+        const errorMsg = response.error || response.message || "Failed to fetch designations";
+        console.error("[Promotion] ✗ ERROR fetching designations:", errorMsg);
+        setDesignations([]);
+        toast.error(errorMsg);
+      }
+    };
+
+    const handlePromotionCreated = (promotion: Promotion) => {
+      console.log("[Promotion] Promotion created:", promotion);
+      setPromotions((prev) => [promotion, ...prev]);
+      // Add to promoted employee IDs
+      setPromotedEmployeeIds((prev) => new Set(prev).add(promotion.employee.id));
+      toast.success("Promotion added successfully");
+    };
+
+    const handlePromotionUpdated = (promotion: Promotion) => {
+      console.log("[Promotion] Promotion updated:", promotion);
+      setPromotions((prev) =>
+        prev.map((p) => (p._id === promotion._id ? promotion : p))
+      );
+      toast.success("Promotion updated successfully");
+    };
+
+    const handlePromotionDeleted = (data: { promotionId: string }) => {
+      console.log("[Promotion] Promotion deleted:", data);
+      // Find the promotion being deleted to get employeeId
+      const deletedPromotion = promotions.find(p => p._id === data.promotionId);
+      setPromotions((prev) => prev.filter((p) => p._id !== data.promotionId));
+      // Remove from promoted employee IDs
+      if (deletedPromotion) {
+        setPromotedEmployeeIds((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(deletedPromotion.employee.id);
+          return newSet;
+        });
+      }
+      toast.success("Promotion deleted successfully");
+    };
+
+    socket.on("promotion:getAll:response", handleGetAllResponse);
+    socket.on("promotion:getDepartments:response", handleGetDepartmentsResponse);
+    socket.on("promotion:getEmployeesByDepartment:response", handleGetEmployeesByDepartmentResponse);
+    socket.on("promotion:getDesignations:response", handleGetDesignationsResponse);
+    socket.on("promotion:getDesignationsByDepartment:response", handleGetDesignationsByDepartmentResponse);
+    socket.on("promotion:created", handlePromotionCreated);
+    socket.on("promotion:updated", handlePromotionUpdated);
+    socket.on("promotion:deleted", handlePromotionDeleted);
+
+    // Cleanup listeners on unmount
+    return () => {
+      socket.off("promotion:getAll:response", handleGetAllResponse);
+      socket.off("promotion:getDepartments:response", handleGetDepartmentsResponse);
+      socket.off("promotion:getEmployeesByDepartment:response", handleGetEmployeesByDepartmentResponse);
+      socket.off("promotion:getDesignations:response", handleGetDesignationsResponse);
+      socket.off("promotion:getDesignationsByDepartment:response", handleGetDesignationsByDepartmentResponse);
+      socket.off("promotion:created", handlePromotionCreated);
+      socket.off("promotion:updated", handlePromotionUpdated);
+      socket.off("promotion:deleted", handlePromotionDeleted);
+      cleanupModals();
+    };
+  }, [socket, cleanupModals]);
+
+  // Handle modal open events to reset errors
+  useEffect(() => {
+    const addModalElement = document.getElementById("new_promotion");
+    const editModalElement = document.getElementById("edit_promotion");
+
+    const handleAddModalOpen = () => {
+      console.log("[Promotion] Add modal opened - clearing errors and resetting form");
+      
+      // Clear employees list to force fresh fetch
+      setEmployees([]);
+      
+      // Clear errors
+      setAddErrors({
+        sourceDepartmentId: "",
+        employeeId: "",
+        targetDepartmentId: "",
+        designationToId: "",
+        promotionDate: "",
+        promotionType: "",
+      });
+      
+      // Reset form to ensure clean state
+      setNewPromotion({
+        sourceDepartmentId: "",
+        employeeId: "",
+        targetDepartmentId: "",
+        designationToId: "",
+        promotionDate: null,
+        promotionType: "Regular",
+      });
+      
+      // Clear designations
+      setDesignations([]);
+    };
+
+    const handleEditModalOpen = () => {
+      console.log("[Promotion] Edit modal opened - errors already cleared in handleEditClick");
+    };
+
+    if (addModalElement) {
+      addModalElement.addEventListener("shown.bs.modal", handleAddModalOpen);
+    }
+
+    if (editModalElement) {
+      editModalElement.addEventListener("shown.bs.modal", handleEditModalOpen);
+    }
+
+    return () => {
+      if (addModalElement) {
+        addModalElement.removeEventListener("shown.bs.modal", handleAddModalOpen);
+      }
+      if (editModalElement) {
+        editModalElement.removeEventListener("shown.bs.modal", handleEditModalOpen);
+      }
+    };
+  }, []);
+
+  // Fetch employees by department
+  const fetchEmployeesByDepartment = React.useCallback((departmentId: string) => {
+    if (!socket || !departmentId) {
+      console.log("[Promotion] fetchEmployeesByDepartment - socket or departmentId missing", { socket: !!socket, departmentId });
+      setEmployees([]);
+      return;
+    }
+    console.log("[Promotion] Fetching employees for department:", departmentId, "type:", typeof departmentId);
+    socket.emit("promotion:getEmployeesByDepartment", departmentId);
+  }, [socket]);
+
+  // Fetch designations by department
+  const fetchDesignationsByDepartment = React.useCallback((departmentId: string) => {
+    if (!socket || !departmentId) {
+      console.log("[Promotion] fetchDesignationsByDepartment - socket or departmentId missing", { socket: !!socket, departmentId });
+      setDesignations([]);
+      return;
+    }
+    console.log("[Promotion] ===== EMITTING promotion:getDesignationsByDepartment with departmentId:", departmentId, "type:", typeof departmentId);
+    socket.emit("promotion:getDesignationsByDepartment", departmentId);
+  }, [socket]);
+
+  // Handle department change in Add form
+  const handleAddDepartmentChange = (option: any) => {
+    console.log("[Promotion] Add source department selected - _id:", option?.value);
+    setNewPromotion({
+      ...newPromotion,
+      sourceDepartmentId: option?.value || "",
+      employeeId: "", // Reset employee when department changes
+      targetDepartmentId: "", // Reset target department
+      designationToId: "", // Reset designation when department changes
+    });
+    // Clear all dependent field errors
+    setAddErrors(prev => ({ ...prev, sourceDepartmentId: "", employeeId: "", targetDepartmentId: "", designationToId: "" }));
+    if (option?.value) {
+      fetchEmployeesByDepartment(option.value);
+      // Do NOT fetch designations here - they depend on target department only
+    } else {
+      setEmployees([]);
+    }
+    // Clear designations since target department is reset
+    setDesignations([]);
+  };
+
+  // Handle employee change in Add form
+  const handleAddEmployeeChange = (option: any) => {
+    console.log("[Promotion] Add employee selected - id:", option?.value);
+    const employee = employees.find(emp => emp.id === option?.value);
+    
+    const newTargetDeptId = employee?.departmentId || "";
+    console.log("[Promotion] Auto-populating target department:", newTargetDeptId);
+    
+    setNewPromotion({
+      ...newPromotion,
+      employeeId: option?.value || "",
+      targetDepartmentId: newTargetDeptId, // Auto-populate with employee's current department
+      designationToId: "", // Reset designation when employee changes
+    });
+    
+    // Clear employee, department, and designation errors
+    setAddErrors(prev => ({ ...prev, employeeId: "", targetDepartmentId: "", designationToId: "" }));
+    
+    // Fetch designations for the auto-populated target department
+    if (newTargetDeptId) {
+      console.log("[Promotion] Fetching designations for auto-populated department:", newTargetDeptId);
+      fetchDesignationsByDepartment(newTargetDeptId);
+    } else {
+      console.log("[Promotion] No department to fetch designations for, clearing designations");
+      setDesignations([]);
+    }
+  };
+
+  // Handle target department change in Add form
+  const handleAddTargetDepartmentChange = (option: any) => {
+    console.log("[Promotion] Add target department selected - _id:", option?.value);
+    setNewPromotion({
+      ...newPromotion,
+      targetDepartmentId: option?.value || "",
+      designationToId: "", // Reset designation when target department changes
+    });
+    // Clear target department and designation errors
+    setAddErrors(prev => ({ ...prev, targetDepartmentId: "", designationToId: "" }));
+    if (option?.value) {
+      console.log("[Promotion] Fetching designations for target department:", option.value);
+      // Clear existing designations first to show loading state
+      setDesignations([]);
+      // Fetch designations for the target department
+      fetchDesignationsByDepartment(option.value);
+    } else {
+      console.log("[Promotion] No target department selected, clearing designations");
+      setDesignations([]);
+    }
+  };
+
+  // Handle designation change in Add form
+  const handleAddDesignationChange = (option: any) => {
+    console.log("[Promotion] Add designation selected - id:", option?.value);
+    setNewPromotion({
+      ...newPromotion,
+      designationToId: option?.value || "",
+    });
+    // Clear designation error
+    setAddErrors(prev => ({ ...prev, designationToId: "" }));
+  };
+
+  // Handle promotion type change in Add form
+  const handleAddPromotionTypeChange = (option: any) => {
+    setNewPromotion({
+      ...newPromotion,
+      promotionType: option?.value || "Regular",
+    });
+    // Clear promotion type error
+    setAddErrors(prev => ({ ...prev, promotionType: "" }));
+  };
+
+  // Handle promotion date change in Add form
+  const handleAddPromotionDateChange = (date: Dayjs | null) => {
+    setNewPromotion({
+      ...newPromotion,
+      promotionDate: date,
+    });
+    // Clear date error
+    setAddErrors(prev => ({ ...prev, promotionDate: "" }));
+  };
+
+  // Validate Add Promotion form
+  const validateAddForm = (): boolean => {
+    const errors = {
+      sourceDepartmentId: "",
+      employeeId: "",
+      targetDepartmentId: "",
+      designationToId: "",
+      promotionDate: "",
+      promotionType: "",
+    };
+
+    let isValid = true;
+
+    if (!newPromotion.sourceDepartmentId || newPromotion.sourceDepartmentId === "") {
+      errors.sourceDepartmentId = "Please select a department";
+      isValid = false;
+    }
+
+    if (!newPromotion.employeeId || newPromotion.employeeId === "") {
+      errors.employeeId = "Please select an employee";
+      isValid = false;
+    } else {
+      // Check for duplicate promotion
+      if (promotedEmployeeIds.has(newPromotion.employeeId)) {
+        errors.employeeId = "This employee already has an existing promotion";
+        isValid = false;
+      }
+    }
+
+    if (!newPromotion.targetDepartmentId || newPromotion.targetDepartmentId === "") {
+      errors.targetDepartmentId = "Please select a target department";
+      isValid = false;
+    }
+
+    if (!newPromotion.designationToId || newPromotion.designationToId === "") {
+      errors.designationToId = "Please select a promotion designation";
+      isValid = false;
+    } else if (newPromotion.employeeId) {
+      // Check if promoting to same designation (regardless of department change)
+      const employee = employees.find(emp => emp.id === newPromotion.employeeId);
+      if (employee && employee.designationId === newPromotion.designationToId) {
+        // If same designation, check if it's also the same department
+        if (employee.departmentId === newPromotion.targetDepartmentId) {
+          errors.designationToId = "Cannot promote to the same department and designation. Please select a different department or designation.";
+        } else {
+          // Same designation but different department - this is a lateral move, which may be valid
+          // But we should still warn or prevent based on business rules
+          errors.designationToId = "Employee already holds this designation in another department. Please select a different designation for promotion.";
+        }
+        isValid = false;
+      }
+    }
+
+    if (!newPromotion.promotionType || newPromotion.promotionType === "") {
+      errors.promotionType = "Please select a promotion type";
+      isValid = false;
+    }
+
+    if (!newPromotion.promotionDate) {
+      errors.promotionDate = "Please select a promotion date";
+      isValid = false;
+    }
+
+    setAddErrors(errors);
+    return isValid;
+  };
+
+  // Validate Edit Promotion form
+  const validateEditForm = (): boolean => {
+    const errors = {
+      departmentId: "",
+      designationToId: "",
+      promotionDate: "",
+      promotionType: "",
+    };
+
+    let isValid = true;
+
+    if (!editForm.departmentId || editForm.departmentId === "") {
+      errors.departmentId = "Please select a department";
+      isValid = false;
+    }
+
+    if (!editForm.designationToId || editForm.designationToId === "") {
+      errors.designationToId = "Please select a promotion designation";
+      isValid = false;
+    }
+
+    if (!editForm.promotionType || editForm.promotionType === "") {
+      errors.promotionType = "Please select a promotion type";
+      isValid = false;
+    }
+
+    if (!editForm.promotionDate) {
+      errors.promotionDate = "Please select a promotion date";
+      isValid = false;
+    }
+
+    setEditErrors(errors);
+    return isValid;
+  };
+
+  // Handle add promotion
+  const handleAddPromotion = () => {
+    console.log("[Promotion] handleAddPromotion called", { newPromotion, socketConnected: !!socket });
+
+    // Validate form first
+    if (!validateAddForm()) {
+      return;
+    }
+
+    if (!socket) {
+      toast.error("Socket not connected. Please refresh the page.");
+      return;
+    }
+
+    const employee = employees.find(emp => emp.id === newPromotion.employeeId);
+    const designationTo = designations.find(des => des.id === newPromotion.designationToId);
+    const targetDepartment = departments.find(dept => dept._id === newPromotion.targetDepartmentId);
+    
+    // Get current department from the sourceDepartmentId (where we fetched employees from)
+    const currentDepartment = departments.find(dept => dept._id === newPromotion.sourceDepartmentId);
+
+    console.log("[Promotion] Found employee:", employee);
+    console.log("[Promotion] Found designation:", designationTo);
+    console.log("[Promotion] Found target department:", targetDepartment);
+    console.log("[Promotion] Found current department:", currentDepartment);
+
+    if (!employee) {
+      toast.error("Selected employee not found. Please refresh and try again.");
+      console.error("[Promotion] Employee not found:", newPromotion.employeeId);
+      return;
+    }
+
+    if (!designationTo) {
+      toast.error("Selected designation not found. Please refresh and try again.");
+      console.error("[Promotion] Designation not found:", newPromotion.designationToId);
+      return;
+    }
+
+    if (!targetDepartment) {
+      toast.error("Target department not found. Please refresh and try again.");
+      console.error("[Promotion] Target department not found:", newPromotion.targetDepartmentId);
+      return;
+    }
+
+    if (!currentDepartment) {
+      toast.error("Current department not found. Please refresh and try again.");
+      console.error("[Promotion] Current department not found:", newPromotion.sourceDepartmentId);
+      return;
+    }
+
+    if (!employee.designationId || !employee.designation) {
+      toast.error("Employee's current designation is missing. Cannot create promotion.");
+      console.error("[Promotion] Employee missing designation:", employee);
+      return;
+    }
+
+    const promotionData = {
+      employee: {
+        id: employee.id,
+        name: employee.name,
+        image: employee.image
+      },
+      promotionFrom: {
+        department: {
+          id: currentDepartment._id,
+          name: currentDepartment.department
+        },
+        designation: {
+          id: employee.designationId,
+          name: employee.designation
+        }
+      },
+      promotionTo: {
+        department: {
+          id: targetDepartment._id,
+          name: targetDepartment.department
+        },
+        designation: {
+          id: designationTo.id,
+          name: designationTo.name
+        }
+      },
+      promotionDate: newPromotion.promotionDate.toISOString(),
+      promotionType: newPromotion.promotionType,
+    };
+
+    console.log("[Promotion] Adding promotion:", promotionData);
+
+    // Set up timeout for response
+    const timeoutId = setTimeout(() => {
+      toast.error("Request timeout. Please check your connection and try again.");
+    }, 10000);
+
+    socket.emit("promotion:create", promotionData);
+
+    socket.once("promotion:create:response", (response: any) => {
+      clearTimeout(timeoutId);
+      console.log("[Promotion] Create response:", response);
+      if (response.done) {
+        // Success! Show toast first, then close modal
+        toast.success("Promotion added successfully!");
+        
+        // Update the list immediately
+        if (response.data) {
+          setPromotions((prev) => [response.data, ...prev]);
+          setPromotedEmployeeIds((prev) => new Set(prev).add(response.data.employee.id));
+        }
+        
+        // Close modal with delay for animation
+        setTimeout(() => {
+          closeModalReliably("new_promotion");
+          
+          // Reset form after modal closing animation
+          setTimeout(() => {
+            setNewPromotion({
+              sourceDepartmentId: "",
+              employeeId: "",
+              targetDepartmentId: "",
+              designationToId: "",
+              promotionDate: null,
+              promotionType: "Regular",
+            });
+            setAddErrors({
+              sourceDepartmentId: "",
+              employeeId: "",
+              targetDepartmentId: "",
+              designationToId: "",
+              promotionDate: "",
+              promotionType: "",
+            });
+            setEmployees([]);
+            setDesignations([]);
+          }, 300);
+        }, 100);
+      } else {
+        toast.error(response.error || "Failed to add promotion");
+        console.error("[Promotion] Create failed:", response);
+      }
+    });
+  };
+
+  // Handle edit promotion
+  const handleEditClick = (promotion: Promotion) => {
+    console.log("[Promotion] Edit clicked:", promotion);
+    setEditingPromotion(promotion);
+    setEditForm({
+      departmentId: promotion.promotionTo.department.id,
+      designationToId: promotion.promotionTo.designation.id,
+      promotionDate: dayjs(promotion.promotionDate),
+      promotionType: promotion.promotionType || "Regular",
+    });
+    // Clear edit errors when opening modal
+    setEditErrors({
+      departmentId: "",
+      designationToId: "",
+      promotionDate: "",
+      promotionType: "",
+    });
+    // Fetch designations for the promotion's target department
+    if (promotion.promotionTo.department.id) {
+      fetchDesignationsByDepartment(promotion.promotionTo.department.id);
+    }
+  };
+
+  const handleUpdatePromotion = () => {
+    console.log("[Promotion] handleUpdatePromotion called", { editForm, editingPromotion });
+
+    // Validate form first
+    if (!validateEditForm()) {
+      return;
+    }
+
+    if (!socket || !editingPromotion) {
+      toast.error("Socket not connected or no promotion selected");
+      return;
+    }
+
+    const designationTo = designations.find(des => des.id === editForm.designationToId);
+    const department = departments.find(dept => dept._id === editForm.departmentId);
+    console.log("[Promotion] Found designation for update:", designationTo);
+    console.log("[Promotion] Found department for update:", department);
+
+    if (!designationTo) {
+      toast.error("Invalid designation selected");
+      return;
+    }
+
+    if (!department) {
+      toast.error("Invalid department selected");
+      return;
+    }
+
+    const updateData = {
+      promotionTo: {
+        department: {
+          id: department._id,
+          name: department.department
+        },
+        designation: {
+          id: designationTo.id,
+          name: designationTo.name
+        }
+      },
+      promotionDate: editForm.promotionDate.toISOString(),
+      promotionType: editForm.promotionType,
+    };
+
+    console.log("[Promotion] Updating promotion:", { promotionId: editingPromotion._id, update: updateData });
+
+    const timeoutId = setTimeout(() => {
+      toast.error("Update timeout. Please try again.");
+    }, 10000);
+
+    socket.emit("promotion:update", {
+      promotionId: editingPromotion._id,
+      update: updateData,
+    });
+
+    socket.once("promotion:update:response", (response: any) => {
+      clearTimeout(timeoutId);
+      console.log("[Promotion] Update response:", response);
+      if (response.done) {
+        // Success! Show toast first, then close modal
+        toast.success("Promotion updated successfully!");
+        
+        // Update the list immediately
+        if (response.data) {
+          setPromotions((prev) =>
+            prev.map((p) => (p._id === response.data._id ? response.data : p))
+          );
+        }
+        
+        // Close modal with delay for animation
+        setTimeout(() => {
+          closeModalReliably("edit_promotion");
+          
+          // Reset form after modal closing animation
+          setTimeout(() => {
+            setEditingPromotion(null);
+            setEditForm({
+              departmentId: "",
+              designationToId: "",
+              promotionDate: null,
+              promotionType: "Regular",
+            });
+            setEditErrors({
+              departmentId: "",
+              designationToId: "",
+              promotionDate: "",
+              promotionType: "",
+            });
+            setDesignations([]);
+          }, 300);
+        }, 100);
+      } else {
+        toast.error(response.error || "Failed to update promotion");
+        console.error("[Promotion] Update failed:", response);
+      }
+    });
+  };
+
+  // Handle delete promotion
+  const handleDeleteClick = (promotionId: string) => {
+    console.log("[Promotion] Delete clicked:", promotionId);
+    setDeletingPromotionId(promotionId);
+  };
+
+  // Handle view promotion details
+  const handleViewClick = (promotion: Promotion) => {
+    console.log("[Promotion] View clicked:", promotion);
+    setViewingPromotion(promotion);
+  };
+
+  const confirmDelete = () => {
+    if (!socket || !deletingPromotionId) {
+      toast.error("Socket not connected or no promotion selected");
+      return;
+    }
+
+    console.log("[Promotion] Deleting promotion:", deletingPromotionId);
+
+    const timeoutId = setTimeout(() => {
+      toast.error("Delete timeout. Please try again.");
+    }, 10000);
+
+    socket.emit("promotion:delete", { promotionId: deletingPromotionId });
+
+    socket.once("promotion:delete:response", (response: any) => {
+      clearTimeout(timeoutId);
+      console.log("[Promotion] Delete response:", response);
+      if (response.done) {
+        // Show toast first
+        toast.success("Promotion deleted successfully!");
+        
+        // Update the list immediately
+        const deletedPromotion = promotions.find(p => p._id === deletingPromotionId);
+        setPromotions((prev) => prev.filter((p) => p._id !== deletingPromotionId));
+        
+        // Remove from promoted employee IDs
+        if (deletedPromotion) {
+          setPromotedEmployeeIds((prev) => {
+            const newSet = new Set(prev);
+            newSet.delete(deletedPromotion.employee.id);
+            return newSet;
+          });
+        }
+        
+        // Close modal with delay for animation
+        setTimeout(() => {
+          closeModalReliably("delete_modal");
+          setDeletingPromotionId(null);
+        }, 100);
+      } else {
+        toast.error(response.error || "Failed to delete promotion");
+        console.error("[Promotion] Delete failed:", response);
+      }
+    });
+  };
+
+  // Convert departments to select options
+  const departmentOptions = departments.map(dept => ({
+    value: dept._id,
+    label: dept.department
+  }));
+
+  // Convert employees to select options
+  const employeeOptions = employees.length > 0
+    ? employees.map(emp => ({
+      value: emp.id,
+      label: `${emp.employeeId} - ${emp.name}`,
+    }))
+    : [{ value: "", label: departments.length === 0 ? "Loading departments..." : "Select a department first" }];
+
+  // Convert designations to select options - depends ONLY on target department
+  const designationOptions = designations.length > 0
+    ? designations.map(des => ({
+      value: des.id,
+      label: des.name,
+    }))
+    : [{ value: "", label: !newPromotion.targetDepartmentId ? "Select target department first" : (loading ? "Loading designations..." : "No designations available in this department") }];
+
+  // Promotion type options
+  const promotionTypeOptions = [
+    { value: "Performance Based", label: "Performance Based" },
+    { value: "Experience Based", label: "Experience Based" },
+    { value: "Qualification Based", label: "Qualification Based" },
+    { value: "Special Achievement", label: "Special Achievement" },
+    { value: "Regular", label: "Regular" },
+    { value: "Other", label: "Other" },
+  ];
+
+  // Get designation from based on selected employee for add form
+  const getDesignationFrom = () => {
+    if (newPromotion.employeeId) {
+      const employee = employees.find(emp => emp.id === newPromotion.employeeId);
+      return employee ? employee.designation : "";
+    }
+    return "";
+  };
+
+  // Get department from based on selected employee for add form
+  const getDepartmentFrom = () => {
+    if (newPromotion.employeeId) {
+      const employee = employees.find(emp => emp.id === newPromotion.employeeId);
+      return employee ? employee.department : "";
+    }
+    return "";
+  };
+
+  const data = promotions.map(promotion => ({
+    key: promotion._id,
+    Promoted_Employee: promotion.employee.name,
+    Image: promotion.employee.image,
+    Department: promotion.promotionFrom.department.name,
+    Designation_From: promotion.promotionFrom.designation.name,
+    Designation_To: promotion.promotionTo.designation.name,
+    Promotion_Date: dayjs(promotion.promotionDate).format("DD MMM YYYY"),
+    _original: promotion,
+  }));
+
   const columns = [
     {
       title: "Promoted Employee",
       dataIndex: "Promoted_Employee",
-      render: (text: String, record: any) => (
+      render: (text: string, record: any) => (
         <div className="d-flex align-items-center">
+          <div className="avatar avatar-md me-2">
+            {record.Image ? (
+              <ImageWithBasePath
+                src={record.Image}
+                className="rounded-circle"
+                alt="user"
+              />
+            ) : (
+              <div className="avatar-title bg-primary-transparent rounded-circle">
+                {text.charAt(0)}
+              </div>
+            )}
+          </div>
           <Link
-            to={all_routes.invoiceDetails}
-            className="avatar avatar-md me-2"
+            to={`/employees/${record._original.employee.id}`}
+            className="fw-medium text-dark"
           >
-            <ImageWithBasePath
-              src={`assets/img/users/${record.Image}`}
-              className="rounded-circle"
-              alt="user"
-            />
+            {text}
           </Link>
-          <h6 className="fw-medium">
-            <Link to={all_routes.invoiceDetails}>
-              {record.Promoted_Employee}
-            </Link>
-          </h6>
         </div>
       ),
       sorter: (a: any, b: any) =>
@@ -60,7 +1056,7 @@ const Promotion = () => {
         a.Designation_From.length - b.Designation_From.length,
     },
     {
-      title: "Designation From",
+      title: "Designation To",
       dataIndex: "Designation_To",
       sorter: (a: any, b: any) =>
         a.Designation_To.length - b.Designation_To.length,
@@ -74,9 +1070,23 @@ const Promotion = () => {
     {
       title: "",
       dataIndex: "actions",
-      render: () => (
+      render: (_: any, record: any) => (
         <div className="action-icon d-inline-flex">
-          <Link to="#" className="me-2">
+          <Link
+            to="#"
+            className="me-2"
+            onClick={() => handleViewClick(record._original)}
+            data-bs-toggle="modal"
+            data-inert={true}
+            data-bs-target="#view_promotion"
+          >
+            <i className="ti ti-eye" />
+          </Link>
+          <Link
+            to="#"
+            className="me-2"
+            onClick={() => handleEditClick(record._original)}
+          >
             <i
               className="ti ti-edit"
               data-bs-toggle="modal"
@@ -86,6 +1096,7 @@ const Promotion = () => {
           </Link>
           <Link
             to="#"
+            onClick={() => handleDeleteClick(record._original._id)}
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#delete_modal"
@@ -185,7 +1196,22 @@ const Promotion = () => {
                   </div>
                 </div>
                 <div className="card-body p-0">
-                  <Table dataSource={data} columns={columns} Selection={true} />
+                  {loading ? (
+                    <div className="text-center p-5">
+                      <div className="spinner-border text-primary" role="status">
+                        <span className="visually-hidden">Loading...</span>
+                      </div>
+                      <p className="mt-2">Loading promotions...</p>
+                    </div>
+                  ) : promotions.length === 0 ? (
+                    <div className="text-center p-5">
+                      <i className="ti ti-clipboard-text fs-48 text-muted mb-3 d-block" />
+                      <h5 className="text-muted">No promotions found</h5>
+                      <p className="text-muted">Click "Add Promotion" to create your first promotion record</p>
+                    </div>
+                  ) : (
+                    <Table dataSource={data} columns={columns} Selection={true} />
+                  )}
                 </div>
               </div>
             </div>
@@ -200,7 +1226,7 @@ const Promotion = () => {
       <>
         {/* Add Promotion */}
         <div className="modal fade" id="new_promotion">
-          <div className="modal-dialog modal-dialog-centered modal-md">
+          <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content">
               <div className="modal-header">
                 <h4 className="modal-title">Add Promotion</h4>
@@ -214,45 +1240,116 @@ const Promotion = () => {
                 </button>
               </div>
               <form>
-                <div className="modal-body pb-0">
+                <div className="modal-body pb-0" id="modal-datepicker">
                   <div className="row">
                     <div className="col-md-12">
                       <div className="mb-3">
-                        <label className="form-label">Promotion For</label>
+                        <label className="form-label">
+                          Department <span className="text-danger">*</span>
+                        </label>
                         <CommonSelect
                           className="select"
-                          options={termination}
+                          options={departmentOptions}
+                          value={departmentOptions.find(opt => opt.value === newPromotion.sourceDepartmentId) || null}
+                          onChange={handleAddDepartmentChange}
                         />
+                        {addErrors.sourceDepartmentId && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.sourceDepartmentId}</div>
+                        )}
                       </div>
                     </div>
                     <div className="col-md-12">
                       <div className="mb-3">
-                        <label className="form-label">Promotion From</label>
+                        <label className="form-label">
+                          Promotion For <span className="text-danger">*</span>
+                        </label>
                         <CommonSelect
                           className="select"
-                          options={promotiontype}
+                          options={employeeOptions}
+                          value={employeeOptions.find(opt => opt.value === newPromotion.employeeId) || null}
+                          onChange={handleAddEmployeeChange}
                         />
+                        {addErrors.employeeId && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.employeeId}</div>
+                        )}
                       </div>
                     </div>
-                    <div className="col-md-12">
+                    {newPromotion.employeeId && (
+                      <div className="col-md-12">
+                        <div className="mb-3">
+                          <label className="form-label">Current Designation</label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            value={getDesignationFrom()}
+                            disabled
+                          />
+                        </div>
+                      </div>
+                    )}
+                    
+                    {/* Two-Column Layout */}
+                    <div className="col-md-6">
                       <div className="mb-3">
-                        <label className="form-label">Promotion To</label>
+                        <label className="form-label">
+                          Department To <span className="text-danger">*</span>
+                        </label>
                         <CommonSelect
                           className="select"
-                          options={promotionto}
+                          options={departmentOptions}
+                          value={departmentOptions.find(opt => opt.value === newPromotion.targetDepartmentId) || null}
+                          onChange={handleAddTargetDepartmentChange}
+                          disabled={!newPromotion.employeeId}
                         />
+                        {addErrors.targetDepartmentId && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.targetDepartmentId}</div>
+                        )}
                       </div>
                     </div>
-                    <div className="col-md-12">
+                    <div className="col-md-6">
                       <div className="mb-3">
-                        <label className="form-label">Promotion Date</label>
+                        <label className="form-label">
+                          Promotion To <span className="text-danger">*</span>
+                        </label>
+                        <CommonSelect
+                          className="select"
+                          options={designationOptions}
+                          value={designationOptions.find(opt => opt.value === newPromotion.designationToId) || null}
+                          onChange={handleAddDesignationChange}
+                          disabled={!newPromotion.targetDepartmentId}
+                        />
+                        {addErrors.designationToId && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.designationToId}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label className="form-label">
+                          Promotion Type <span className="text-danger">*</span>
+                        </label>
+                        <CommonSelect
+                          className="select"
+                          options={promotionTypeOptions}
+                          value={promotionTypeOptions.find(opt => opt.value === newPromotion.promotionType) || null}
+                          onChange={handleAddPromotionTypeChange}
+                        />
+                        {addErrors.promotionType && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.promotionType}</div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="col-md-6">
+                      <div className="mb-3">
+                        <label className="form-label">
+                          Promotion Date <span className="text-danger">*</span>
+                        </label>
                         <div className="input-icon-end position-relative">
                           <DatePicker
                             className="form-control datetimepicker"
-                            format={{
-                              format: "DD-MM-YYYY",
-                              type: "mask",
-                            }}
+                            format="DD-MM-YYYY"
+                            value={newPromotion.promotionDate}
+                            onChange={handleAddPromotionDateChange}
                             getPopupContainer={getModalContainer}
                             placeholder="DD-MM-YYYY"
                           />
@@ -260,6 +1357,9 @@ const Promotion = () => {
                             <i className="ti ti-calendar text-gray-7" />
                           </span>
                         </div>
+                        {addErrors.promotionDate && (
+                          <div className="text-danger fs-12 mt-1">{addErrors.promotionDate}</div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -274,10 +1374,11 @@ const Promotion = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
+                    onClick={handleAddPromotion}
                     className="btn btn-primary"
+                    disabled={loading || employees.length === 0 || designations.length === 0}
                   >
-                    Add Promotion
+                    {loading ? "Loading..." : "Add Promotion"}
                   </button>
                 </div>
               </form>
@@ -287,7 +1388,7 @@ const Promotion = () => {
         {/* /Add Promotion */}
         {/* Edit Promotion */}
         <div className="modal fade" id="edit_promotion">
-          <div className="modal-dialog modal-dialog-centered modal-md">
+          <div className="modal-dialog modal-dialog-centered modal-lg">
             <div className="modal-content">
               <div className="modal-header">
                 <h4 className="modal-title">Edit Promotion</h4>
@@ -301,57 +1402,124 @@ const Promotion = () => {
                 </button>
               </div>
               <form>
-                <div className="modal-body pb-0">
+                <div className="modal-body pb-0" id="modal-datepicker">
                   <div className="row">
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Promotion For</label>
-                        <CommonSelect
-                          className="select"
-                          defaultValue={terminationtype[1]}
-                          options={terminationtype}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Promotion From</label>
-                        <CommonSelect
-                          className="select"
-                          defaultValue={promotiontype[1]}
-                          options={promotiontype}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Promotion To</label>
-                        <CommonSelect
-                          className="select"
-                          defaultValue={promotionto[1]}
-                          options={promotionto}
-                        />
-                      </div>
-                    </div>
-                    <div className="col-md-12">
-                      <div className="mb-3">
-                        <label className="form-label">Promotion Date</label>
-                        <div className="input-icon-end position-relative">
-                          <DatePicker
-                            className="form-control datetimepicker"
-                            format={{
-                              format: "DD-MM-YYYY",
-                              type: "mask",
-                            }}
-                            getPopupContainer={getModalContainer}
-                            placeholder="DD-MM-YYYY"
-                          />
-                          <span className="input-icon-addon">
-                            <i className="ti ti-calendar text-gray-7" />
-                          </span>
+                    {editingPromotion && (
+                      <>
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label">Employee</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              value={editingPromotion.employee.name}
+                              disabled
+                            />
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                        <div className="col-md-12">
+                          <div className="mb-3">
+                            <label className="form-label">Current Designation</label>
+                            <input
+                              type="text"
+                              className="form-control"
+                              value={editingPromotion.promotionFrom.designation.name}
+                              disabled
+                            />
+                          </div>
+                        </div>
+                        
+                        {/* Two-Column Layout */}
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Department To <span className="text-danger">*</span>
+                            </label>
+                            <CommonSelect
+                              className="select"
+                              options={departmentOptions}
+                              value={departmentOptions.find(opt => opt.value === editForm.departmentId) || null}
+                              onChange={(option: any) => {
+                                setEditForm({ ...editForm, departmentId: option.value, designationToId: "" });
+                                setEditErrors(prev => ({ ...prev, departmentId: "", designationToId: "" }));
+                                if (option?.value) {
+                                  fetchDesignationsByDepartment(option.value);
+                                } else {
+                                  setDesignations([]);
+                                }
+                              }}
+                            />
+                            {editErrors.departmentId && (
+                              <div className="text-danger fs-12 mt-1">{editErrors.departmentId}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Promotion To <span className="text-danger">*</span>
+                            </label>
+                            <CommonSelect
+                              className="select"
+                              options={designationOptions}
+                              value={designationOptions.find(opt => opt.value === editForm.designationToId) || null}
+                              onChange={(option: any) => {
+                                setEditForm({ ...editForm, designationToId: option.value });
+                                setEditErrors(prev => ({ ...prev, designationToId: "" }));
+                              }}
+                            />
+                            {editErrors.designationToId && (
+                              <div className="text-danger fs-12 mt-1">{editErrors.designationToId}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Promotion Type <span className="text-danger">*</span>
+                            </label>
+                            <CommonSelect
+                              className="select"
+                              options={promotionTypeOptions}
+                              value={promotionTypeOptions.find(opt => opt.value === editForm.promotionType) || null}
+                              onChange={(option: any) => {
+                                setEditForm({ ...editForm, promotionType: option.value });
+                                setEditErrors(prev => ({ ...prev, promotionType: "" }));
+                              }}
+                            />
+                            {editErrors.promotionType && (
+                              <div className="text-danger fs-12 mt-1">{editErrors.promotionType}</div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="col-md-6">
+                          <div className="mb-3">
+                            <label className="form-label">
+                              Promotion Date <span className="text-danger">*</span>
+                            </label>
+                            <div className="input-icon-end position-relative">
+                              <DatePicker
+                                className="form-control datetimepicker"
+                                format="DD-MM-YYYY"
+                                value={editForm.promotionDate}
+                                onChange={(date) => {
+                                  setEditForm({ ...editForm, promotionDate: date });
+                                  setEditErrors(prev => ({ ...prev, promotionDate: "" }));
+                                }}
+                                getPopupContainer={getModalContainer}
+                                placeholder="DD-MM-YYYY"
+                              />
+                              <span className="input-icon-addon">
+                                <i className="ti ti-calendar text-gray-7" />
+                              </span>
+                            </div>
+                            {editErrors.promotionDate && (
+                              <div className="text-danger fs-12 mt-1">{editErrors.promotionDate}</div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="modal-footer">
@@ -364,7 +1532,7 @@ const Promotion = () => {
                   </button>
                   <button
                     type="button"
-                    data-bs-dismiss="modal"
+                    onClick={handleUpdatePromotion}
                     className="btn btn-primary"
                   >
                     Save Changes
@@ -385,26 +1553,32 @@ const Promotion = () => {
                 </span>
                 <h4 className="mb-1">Confirm Delete</h4>
                 <p className="mb-3">
-                  You want to delete all the marked items, this cant be undone
-                  once you delete.
+                  Are you sure you want to delete this promotion? This action cannot be undone.
                 </p>
                 <div className="d-flex justify-content-center">
-                  <Link
-                    to="#"
+                  <button
+                    type="button"
                     className="btn btn-light me-3"
                     data-bs-dismiss="modal"
                   >
                     Cancel
-                  </Link>
-                  <Link to={all_routes.promotion} className="btn btn-danger">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmDelete}
+                    className="btn btn-danger"
+                  >
                     Yes, Delete
-                  </Link>
+                  </button>
                 </div>
               </div>
             </div>
           </div>
         </div>
         {/* /Delete Modal */}
+        {/* View Promotion Detail Modal */}
+        <PromotionDetailsModal promotion={viewingPromotion} modalId="view_promotion" />
+        {/* /View Promotion Detail Modal */}
       </>
     </>
   );
