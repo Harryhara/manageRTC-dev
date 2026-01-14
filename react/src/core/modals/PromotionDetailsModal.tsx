@@ -69,7 +69,7 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
               <div className="col-md-12 mb-4">
                 <div className="d-flex align-items-center">
                   <div className="avatar avatar-lg me-3">
-                    {promotion.employee.image ? (
+                    {promotion.employee.image && promotion.employee.image.trim() !== '' ? (
                       <ImageWithBasePath
                         src={promotion.employee.image}
                         className="rounded-circle"
@@ -77,7 +77,7 @@ const PromotionDetailsModal: React.FC<PromotionDetailsModalProps> = ({
                       />
                     ) : (
                       <div className="avatar-title bg-primary-transparent rounded-circle text-primary fs-20">
-                        {promotion.employee.name.charAt(0)}
+                        {promotion.employee.name?.charAt(0) || 'U'}
                       </div>
                     )}
                   </div>
