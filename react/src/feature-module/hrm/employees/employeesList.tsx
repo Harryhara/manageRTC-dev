@@ -427,7 +427,7 @@ const EmployeeList = () => {
       if (!isMounted) return;
 
       if (response.done && Array.isArray(response.data)) {
-        // console.log("Designations response:", response);
+        console.log("Designations response:", response);
 
         // Map all designations from the response
         const mappedDesignations = response.data.map((d: Designation) => ({
@@ -477,9 +477,9 @@ const EmployeeList = () => {
 
     const handleEmployeeResponse = (response: any) => {
       if (!isMounted) return;
-      // console.log("response hrm-employee", response);
+      console.log("response hrm-employee", response);
       if (response.done) {
-        // console.log("response hrm-employee", response);
+        console.log("response hrm-employee", response);
         if (response.data.stats) {
           setStats(response.data.stats);
         }
@@ -656,6 +656,11 @@ const EmployeeList = () => {
     if (editingEmployee && socket) {
       // Fetch designations for the employee's department
       console.log("Emitting for departmentID", editingEmployee.departmentId);
+
+      // Check lifecycle status when employee is selected for editing
+      socket.emit("hrm/employees/check-lifecycle-status", {
+        employeeId: editingEmployee.employeeId
+      });
 
       if (editingEmployee.departmentId) {
         socket.emit("hrm/designations/get", {
@@ -873,6 +878,7 @@ const EmployeeList = () => {
       ),
     },
   ];
+  console.log("Editing employee", editingEmployee);
 
   const [passwordVisibility, setPasswordVisibility] = useState({
     password: false,
@@ -1664,9 +1670,14 @@ const EmployeeList = () => {
 
     if (!editingEmployee) {
       toast.error("No employee selected for editing.");
-      return false;
+      return;
     }
-    const payload = {
+    
+    // Lifecycle statuses that should only be set through HR workflows
+    const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
+    const currentStatus = normalizeStatus(editingEmployee.status);
+    
+    const payload: any = {
       employeeId: editingEmployee.employeeId || "",
       firstName: editingEmployee.firstName || "",
       lastName: editingEmployee.lastName || "",
@@ -1741,6 +1752,7 @@ const EmployeeList = () => {
       // toast.error("Socket connection is not available.");
     }
   };
+  console.log("editing employee", editingEmployee);
   const handleResetFormData = () => {
     setFormData({
       employeeId: generateId("EMP"),
@@ -2573,7 +2585,7 @@ const EmployeeList = () => {
               data-bs-dismiss="modal"
               style={{ display: "none" }}
             />
-            <form action={all_routes.employeeList}>
+            <form action={all_routes.employeeList} onSubmit={handleSubmit}>
               <div className="contact-grids-tab">
                 <ul className="nav nav-underline" id="myTab" role="tablist">
                   <li className="nav-item" role="presentation">
@@ -3383,10 +3395,9 @@ const EmployeeList = () => {
                       Cancel
                     </button>
                     <button
-                      type="button"
+                      type="submit"
                       className="btn btn-primary"
                       disabled={isValidating || loading}
-                      onClick={handleSubmit}
                     >
                       {isValidating ? (
                         <>
@@ -3958,7 +3969,26 @@ const EmployeeList = () => {
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">Department <span className="text-danger"> *</span></label>
+                          <label className="form-label">
+                            Company<span className="text-danger"> *</span>
+                          </label>
+                          <input
+                            type="text"
+                            className="form-control"
+                            value={editingEmployee?.companyName || ""}
+                            onChange={(e) =>
+                              setEditingEmployee((prev) =>
+                                prev
+                                  ? { ...prev, companyName: e.target.value }
+                                  : prev
+                              )
+                            }
+                          />
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <div className="mb-3">
+                          <label className="form-label">Department</label>
                           <CommonSelect
                             key={`dept-${editingEmployee?._id}-${editingEmployee?.departmentId}`}
                             className="select"
@@ -4002,7 +4032,7 @@ const EmployeeList = () => {
                       </div>
                       <div className="col-md-6">
                         <div className="mb-3">
-                          <label className="form-label">Designation <span className="text-danger"> *</span></label>
+                          <label className="form-label">Designation</label>
                           <CommonSelect
                             key={`desig-${editingEmployee?._id}-${editingEmployee?.designationId}`}
                             className="select"
