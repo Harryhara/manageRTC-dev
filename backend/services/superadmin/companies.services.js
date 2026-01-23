@@ -70,30 +70,25 @@ const addCompany = async (data, user) => {
     const companyId = result.insertedId.toString();
 
     // Create A Flag
-    const flag = false; // init false -> Assume Failed
 
     // Step 3: Generate a random temporary password
     const tempPassword = generateRandomPassword();
     const clerkUserId = createdUser.id;
 
-    if (!flag) {
-      // Skip User Creation
-      flag = !flag; // Flag reset
-      const createdUser = await clerkClient.users.createUser({
-        emailAddress: [data.email],
-        password: tempPassword,
-        publicMetadata: {
-          role: "admin",
-          company: companyId,
-          subdomain: data.domain,
-          flag: flag,
-        },
-      });
-    }
+    const createdUser = await clerkClient.users.createUser({
+      emailAddress: [data.email],
+      password: tempPassword,
+      publicMetadata: {
+        role: "admin",
+        company: companyId,
+        subdomain: data.domain,
+        flag: flag,
+      },
+    });
 
     // Step 4: Create Clerk user
 
-    flag = true; // Flag passed -> User creation done
+    // Flag passed -> User creation done
 
     // Step 5: Update the company document with clerkUserId
     await companiesCollection.updateOne(
