@@ -8,7 +8,7 @@ import {
 import { getsuperadminCollections } from "../../config/db.js";
 import { ObjectId } from "mongodb";
 import { clerkClient } from "@clerk/clerk-sdk-node";
-import sendCredentialsEmail from "../../utils/emailer.js";
+import { sendCredentialsEmail } from "../../utils/emailer.js";
 import generateRandomPassword from "../../utils/generatePassword.js";
 import { initializeCompanyDatabase } from "../../utils/initializeCompanyDatabase.js";
 import axios from "axios";
@@ -103,7 +103,7 @@ const addCompany = async (data, user) => {
           clerkUserId,
           updatedAt: new Date(),
         },
-      }
+      },
     );
 
     // Step 5.5: Initialize company database with collections and default data
@@ -113,13 +113,13 @@ const addCompany = async (data, user) => {
     if (!dbInitResult.done) {
       console.error(
         `⚠️ Database initialization failed for ${companyId}:`,
-        dbInitResult.error
+        dbInitResult.error,
       );
       // Note: We don't fail the whole operation, but log the error
       // The company is still created, but might need manual DB setup
     } else {
       console.log(
-        `✅ Database initialized successfully for company: ${companyId}`
+        `✅ Database initialized successfully for company: ${companyId}`,
       );
     }
 
@@ -140,13 +140,13 @@ const addCompany = async (data, user) => {
             Authorization: `Bearer ${process.env.CLOUDFLARE_API_KEY}`,
             "Content-Type": "application/json",
           },
-        }
+        },
       );
       console.log(`✅ Subdomain created: ${data.domain}.${process.env.DOMAIN}`);
     } catch (dnsError) {
       console.error(
         "⚠️ DNS creation failed:",
-        dnsError.response?.data || dnsError.message
+        dnsError.response?.data || dnsError.message,
       );
       // Don't fail the whole operation if DNS fails - company is still created
     }
@@ -319,7 +319,7 @@ const deleteCompany = async (ids) => {
 
     // Convert string ids to ObjectId if necessary
     const objectIds = ids.map((id) =>
-      typeof id === "string" ? new ObjectId(id) : id
+      typeof id === "string" ? new ObjectId(id) : id,
     );
 
     // Delete all records where _id is in the provided ids array
@@ -477,7 +477,7 @@ const updateCompany = async (form) => {
     // 3. Perform the update
     const result = await companiesCollection.updateOne(
       { _id: new ObjectId(form.id) },
-      { $set: updateData }
+      { $set: updateData },
     );
 
     // if (result.modifiedCount === 0) {

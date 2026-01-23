@@ -13,14 +13,14 @@ import holidayTypeController from "./holidayTypes.controller.js";
 
 const hrDashboardController = (socket, io) => {
   console.log("Setting up termination controller...");
-  terminationController(socket,io);
+  terminationController(socket, io);
   console.log("Setting up resignation controller...");
-  resignationController(socket,io);
+  resignationController(socket, io);
   console.log("Attaching holidays controller...**********");
-  holidayController(socket,io);
+  holidayController(socket, io);
   console.log("Attaching holiday types controller...**********");
   try {
-    holidayTypeController(socket,io);
+    holidayTypeController(socket, io);
     console.log("Holiday types controller attached successfully!");
   } catch (error) {
     console.error("ERROR attaching holiday types controller:", error);
@@ -43,7 +43,7 @@ const hrDashboardController = (socket, io) => {
     }
     if (socket.userMetadata?.companyId !== socket.companyId) {
       console.error(
-        `[HR] Company ID mismatch: user metadata has ${socket.userMetadata?.companyId}, socket has ${socket.companyId}`
+        `[HR] Company ID mismatch: user metadata has ${socket.userMetadata?.companyId}, socket has ${socket.companyId}`,
       );
       throw new Error("Unauthorized: Company ID mismatch");
     }
@@ -103,7 +103,12 @@ const hrDashboardController = (socket, io) => {
     // Optional string fields - only validate type if provided
     const optionalStringFields = ["avatarUrl", "about", "companyName"];
     for (const field of optionalStringFields) {
-      if (data[field] !== undefined && data[field] !== null && data[field] !== "" && typeof data[field] !== "string") {
+      if (
+        data[field] !== undefined &&
+        data[field] !== null &&
+        data[field] !== "" &&
+        typeof data[field] !== "string"
+      ) {
         return `Field '${field}' must be a string if provided`;
       }
     }
@@ -113,16 +118,10 @@ const hrDashboardController = (socket, io) => {
       return "Missing required field: account";
     }
     if (
-      typeof data.account.userName !== "string" ||
-      data.account.userName.trim() === ""
+      typeof data.account.role !== "string" ||
+      data.account.role.trim() === ""
     ) {
-      return "Field 'account.userName' must be a non-empty string";
-    }
-    if (
-      typeof data.account.password !== "string" ||
-      data.account.password.trim() === ""
-    ) {
-      return "Field 'account.password' must be a non-empty string";
+      return "Field 'account.role' must be a non-empty string";
     }
 
     // Validate nested contact fields
@@ -191,7 +190,7 @@ const hrDashboardController = (socket, io) => {
     if (typeof data !== "object" || data === null) {
       return "Employee data must be an object";
     }
-    
+
     // Required string fields
     const requiredStringFields = [
       "departmentId",
@@ -213,7 +212,12 @@ const hrDashboardController = (socket, io) => {
     // Optional string fields - only validate type if provided
     const optionalStringFields = ["avatarUrl", "about", "companyName"];
     for (const field of optionalStringFields) {
-      if (data[field] !== undefined && data[field] !== null && data[field] !== "" && typeof data[field] !== "string") {
+      if (
+        data[field] !== undefined &&
+        data[field] !== null &&
+        data[field] !== "" &&
+        typeof data[field] !== "string"
+      ) {
         return `Field '${field}' must be a string if provided`;
       }
     }
@@ -222,10 +226,10 @@ const hrDashboardController = (socket, io) => {
       return "Missing required field: account";
     }
     if (
-      typeof data.account.userName !== "string" ||
-      data.account.userName.trim() === ""
+      typeof data.account.role !== "string" ||
+      data.account.role.trim() === ""
     ) {
-      return "Field 'account.userName' must be a non-empty string";
+      return "Field 'account.role' must be a non-empty string";
     }
 
     if (!data.contact || typeof data.contact !== "object") {
@@ -315,7 +319,7 @@ const hrDashboardController = (socket, io) => {
         "[hr/departments/get] Access validated - companyId:",
         companyId,
         "hrId:",
-        hrId
+        hrId,
       );
 
       const response = await hrmDepartment.allDepartments(companyId, hrId);
@@ -370,7 +374,7 @@ const hrDashboardController = (socket, io) => {
       const result = await hrServices.getEmployeesStats(
         companyId,
         hrId,
-        sanitizedFilter
+        sanitizedFilter,
       );
 
       socket.emit("hrm/employees/get-employee-stats-response", result);
@@ -419,7 +423,7 @@ const hrDashboardController = (socket, io) => {
       const result = await hrServices.getEmployeeGridsStats(
         companyId,
         hrId,
-        sanitizedFilter
+        sanitizedFilter,
       );
 
       socket.emit("hrm/employees/get-employee-grid-stats-response", result);
@@ -460,24 +464,28 @@ const hrDashboardController = (socket, io) => {
 
         // Extract applyToAll flag - when true, policy applies to all employees
         const applyToAll = payload.applyToAll === true;
-        
+
         // Extract assignTo mappings (department-designation mappings)
         // When applyToAll is true, we don't need assignTo mappings
-        const assignTo = Array.isArray(payload.assignTo) ? payload.assignTo : [];
+        const assignTo = Array.isArray(payload.assignTo)
+          ? payload.assignTo
+          : [];
 
         if (!policyName) {
           throw new Error("Policy name is required");
         }
         // Only require assignTo when applyToAll is false
         if (!applyToAll && (!assignTo || assignTo.length === 0)) {
-          throw new Error("Please select at least one department or enable 'All Employees'");
+          throw new Error(
+            "Please select at least one department or enable 'All Employees'",
+          );
         }
         if (!description) {
           throw new Error("Description is required");
         }
         if (!dt.isValid) {
           throw new Error(
-            "Effective date is invalid or must be in yyyy-MM-dd format"
+            "Effective date is invalid or must be in yyyy-MM-dd format",
           );
         }
         if (dt <= now) {
@@ -489,7 +497,7 @@ const hrDashboardController = (socket, io) => {
         const policyData = {
           policyName,
           applyToAll,
-          assignTo: applyToAll ? [] : assignTo,  // Empty array for all employees
+          assignTo: applyToAll ? [] : assignTo, // Empty array for all employees
           effectiveDate,
           policyDescription: description,
         };
@@ -502,7 +510,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error adding policy",
         });
       }
-    })
+    }),
   );
 
   socket.on("hr/policy/get", async (payload) => {
@@ -567,7 +575,7 @@ const hrDashboardController = (socket, io) => {
 
         // Extract applyToAll flag - when true, policy applies to all employees
         const applyToAll = data.applyToAll === true;
-        
+
         // Extract assignTo mappings (department-designation mappings)
         // When applyToAll is true, we don't need assignTo mappings
         const assignTo = Array.isArray(data.assignTo) ? data.assignTo : [];
@@ -577,7 +585,9 @@ const hrDashboardController = (socket, io) => {
         }
         // Only require assignTo when applyToAll is false
         if (!applyToAll && (!assignTo || assignTo.length === 0)) {
-          throw new Error("Please select at least one department or enable 'All Employees'");
+          throw new Error(
+            "Please select at least one department or enable 'All Employees'",
+          );
         }
         if (!description) {
           throw new Error("Description is required");
@@ -594,7 +604,7 @@ const hrDashboardController = (socket, io) => {
           policyId,
           policyName,
           applyToAll,
-          assignTo: applyToAll ? [] : assignTo,  // Empty array for all employees
+          assignTo: applyToAll ? [] : assignTo, // Empty array for all employees
           effectiveDate: formattedDate,
           policyDescription: description,
         };
@@ -607,7 +617,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating policy",
         });
       }
-    })
+    }),
   );
 
   socket.on(
@@ -634,7 +644,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error deleting policy",
         });
       }
-    })
+    }),
   );
 
   // crud ops on department
@@ -672,7 +682,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmDepartment.addDepartment(
           companyId,
           hrId,
-          payload
+          payload,
         );
         socket.emit("hr/departments/add-response", response);
         if (socket) {
@@ -686,7 +696,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error adding department",
         });
       }
-    })
+    }),
   );
 
   socket.on("hr/departmentsStats/get", async (payload) => {
@@ -742,7 +752,7 @@ const hrDashboardController = (socket, io) => {
           (!payload.startDate && payload.endDate)
         ) {
           throw new Error(
-            "Both startDate and endDate must be provided together"
+            "Both startDate and endDate must be provided together",
           );
         }
 
@@ -754,7 +764,7 @@ const hrDashboardController = (socket, io) => {
       const result = await hrmDepartment.displayDepartment(
         companyId,
         hrId,
-        filters
+        filters,
       );
       socket.emit("hr/departmentsStats/get-response", result);
     } catch (error) {
@@ -803,7 +813,7 @@ const hrDashboardController = (socket, io) => {
         const result = await hrmDepartment.updateDepartment(
           companyId,
           hrId,
-          payload
+          payload,
         );
         socket.emit("hrm/departments/update-response", result);
       } catch (error) {
@@ -812,7 +822,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating department",
         });
       }
-    })
+    }),
   );
 
   socket.on(
@@ -834,7 +844,7 @@ const hrDashboardController = (socket, io) => {
         const result = await hrmDepartment.deleteDepartment(
           companyId,
           hrId,
-          departmentId
+          departmentId,
         );
         socket.emit("hrm/departments/delete-response", result);
         io.emit("hrm/departments/delete", data);
@@ -844,7 +854,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error deleting policy",
         });
       }
-    })
+    }),
   );
 
   socket.on(
@@ -883,6 +893,7 @@ const hrDashboardController = (socket, io) => {
     "hrm/designations/add",
     withRateLimit(async (data) => {
       try {
+        console.log("Request in - design");
         const { companyId, hrId } = validateHrAccess(socket);
 
         if (!data) {
@@ -917,7 +928,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmDesignation.addDesignation(
           companyId,
           hrId,
-          payload
+          payload,
         );
         socket.emit("hrm/designations/add-response", response);
       } catch (error) {
@@ -928,14 +939,14 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error adding department",
         });
       }
-    })
+    }),
   );
 
   socket.on("hrm/designations/get", async (filters) => {
     try {
       console.log(
         "[hrm/designations/get] Event received with filters:",
-        filters
+        filters,
       );
 
       const { companyId, hrId } = validateHrAccess(socket);
@@ -943,7 +954,7 @@ const hrDashboardController = (socket, io) => {
         "[hrm/designations/get] Validated access - companyId:",
         companyId,
         "hrId:",
-        hrId
+        hrId,
       );
 
       const sanitizedFilters = {};
@@ -971,26 +982,25 @@ const hrDashboardController = (socket, io) => {
       }
       console.log(
         "[hrm/designations/get] Sanitized filters:",
-        sanitizedFilters
+        sanitizedFilters,
       );
 
       const result = await hrmDesignation.displayDesignations(
         companyId,
         hrId,
-        sanitizedFilters
+        sanitizedFilters,
       );
       // console.log("[hrm/designations/get] Service result:", result);
 
       if (!result.done) {
         console.error(
           "[hrm/designations/get] Service returned failure:",
-          result.error || "Failed to fetch designations"
+          result.error || "Failed to fetch designations",
         );
-        throw new Error(
-          result.error || "Failed to fetch designations"
-        );
+        throw new Error(result.error || "Failed to fetch designations");
       }
 
+      console.log("Pushing Design");
       socket.emit("hrm/designations/get-response", result);
       console.log("[hrm/designations/get] Response emitted");
     } catch (error) {
@@ -1018,7 +1028,7 @@ const hrDashboardController = (socket, io) => {
       const result = await hrmDesignation.deleteDesignation(
         companyId,
         hrId,
-        designationId
+        designationId,
       );
 
       if (!result.done) {
@@ -1075,7 +1085,7 @@ const hrDashboardController = (socket, io) => {
 
       if (!companyId || !hrId || !payload) {
         throw new Error(
-          "Missing required fields: companyId, hrId, and payload are required"
+          "Missing required fields: companyId, hrId, and payload are required",
         );
       }
 
@@ -1109,7 +1119,7 @@ const hrDashboardController = (socket, io) => {
       const result = await hrmDesignation.updateDesignation(
         companyId,
         hrId,
-        payload
+        payload,
       );
       if (!result.done) {
         throw new Error(result.error || "Failed to update designation");
@@ -1130,28 +1140,32 @@ const hrDashboardController = (socket, io) => {
 
   // crud ops on employee
 
-  // Check for duplicate email, username, and phone - called before moving to permissions tab
+  // Check for duplicate email, and phone - called before moving to permissions tab
   socket.on("hrm/employees/check-duplicates", async (data) => {
     console.log("=== BACKEND: hrm/employees/check-duplicates called ===");
     console.log("Received data:", data);
     try {
       const { companyId } = validateHrAccess(socket);
       console.log("CompanyId:", companyId);
-      
+
       if (!data || typeof data !== "object") {
         throw new Error("Invalid request data");
       }
 
-      const { email, userName, phone } = data;
+      const { email, phone } = data;
 
-      if (!email || !userName) {
-        throw new Error("Email and username are required");
+      if (!email) {
+        throw new Error("Email are required");
       }
 
-      // Check for duplicates (email, username, and optionally phone)
+      // Check for duplicates (email, and optionally phone)
       console.log("Calling checkDuplicates service...");
-      const duplicateCheck = await hrmEmployee.checkDuplicates(companyId, email, userName, phone);
-      
+      const duplicateCheck = await hrmEmployee.checkDuplicates(
+        companyId,
+        email,
+        phone,
+      );
+
       console.log("=== BACKEND: Sending response ===", duplicateCheck);
       socket.emit("hrm/employees/check-duplicates-response", duplicateCheck);
     } catch (error) {
@@ -1172,7 +1186,7 @@ const hrDashboardController = (socket, io) => {
     try {
       const { companyId, hrId } = validateHrAccess(socket);
       console.log("Access validated - companyId:", companyId, "hrId:", hrId);
-      
+
       if (!data) {
         throw new Error("Employee data is required");
       }
@@ -1205,12 +1219,11 @@ const hrDashboardController = (socket, io) => {
         return;
       }
 
-      // Check for duplicate email/username in the database
+      // Check for duplicate email in the database
       console.log("Checking for duplicates...");
       const duplicateCheck = await hrmEmployee.checkDuplicates(
         companyId,
         employeeData.contact.email,
-        employeeData.account.userName
       );
       console.log("Duplicate check result:", duplicateCheck);
 
@@ -1238,11 +1251,12 @@ const hrDashboardController = (socket, io) => {
     "hrm/employees/add",
     withRateLimit(async (data) => {
       try {
+        console.log("assing employih 1");
         const { companyId, hrId } = validateHrAccess(socket);
         if (!data) {
           throw new Error("Employee data is required");
         }
-        const { employeeData, permissionsData } = data;
+        const { employeeData, clerkId, permissionsData } = data;
         if (!employeeData || typeof employeeData !== "object") {
           throw new Error("Invalid or missing employeeData");
         }
@@ -1262,11 +1276,13 @@ const hrDashboardController = (socket, io) => {
           throw new Error(validationError);
         }
 
+        console.log("assing employih going");
         const response = await hrmEmployee.addEmployee(
           companyId,
           hrId,
+          clerkId,
           employeeData,
-          permissionsData
+          permissionsData,
         );
 
         socket.emit("hrm/employees/add-response", response);
@@ -1277,7 +1293,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error adding employee",
         });
       }
-    })
+    }),
   );
 
   socket.on(
@@ -1300,7 +1316,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.checkPhoneExists(
           companyId,
           phone,
-          excludeEmployeeId
+          excludeEmployeeId,
         );
 
         socket.emit("hrm/employees/check-phone-response", response);
@@ -1311,7 +1327,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error checking phone number",
         });
       }
-    })
+    }),
   );
 
   socket.on(
@@ -1332,7 +1348,7 @@ const hrDashboardController = (socket, io) => {
         const result = await hrServices.deleteEmployee(
           companyId,
           hrId,
-          employeeId
+          employeeId,
         );
         socket.emit("hrm/employees/delete-response", result);
         io.emit("hrm/employees/delete", data);
@@ -1342,7 +1358,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error deleting policy",
         });
       }
-    })
+    }),
   );
 
   // Check Employee Lifecycle Status (for UI status dropdown control)
@@ -1400,7 +1416,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updateEmployeeDetails(
           companyId,
           hrId,
-          data
+          data,
         );
 
         socket.emit("hrm/employees/update-response", response);
@@ -1411,7 +1427,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating employee",
         });
       }
-    })
+    }),
   );
 
   // Update Employee Permissions
@@ -1444,7 +1460,7 @@ const hrDashboardController = (socket, io) => {
           companyId,
           hrId,
           employeeId,
-          permissionsPayload
+          permissionsPayload,
         );
 
         socket.emit("hrm/employees/update-permissions-response", response);
@@ -1456,7 +1472,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating permissions",
         });
       }
-    })
+    }),
   );
 
   socket.on(
@@ -1477,7 +1493,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.getPermissions(
           companyId,
           hrId,
-          employeeId
+          employeeId,
         );
 
         socket.emit("hrm/employees/get-permissions-response", response);
@@ -1487,7 +1503,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating permissions",
         });
       }
-    })
+    }),
   );
 
   // cru ops on employee details
@@ -1505,7 +1521,7 @@ const hrDashboardController = (socket, io) => {
       const employeeInfoResult = await hrmEmployee.getEmployeeDetails(
         companyId,
         hrId,
-        employeeId
+        employeeId,
       );
 
       if (!employeeInfoResult.done) {
@@ -1561,7 +1577,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updateBankDetails(
           companyId,
           hrId,
-          data
+          data,
         );
         console.log("Service response:", JSON.stringify(response, null, 2));
 
@@ -1574,7 +1590,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating bank details",
         });
       }
-    })
+    }),
   );
 
   // Update Personal Info
@@ -1601,7 +1617,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updatePersonalInfo(
           companyId,
           hrId,
-          data
+          data,
         );
 
         socket.emit("hrm/employees/update-personal-response", response);
@@ -1612,7 +1628,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating personal info",
         });
       }
-    })
+    }),
   );
 
   // Update Family Info
@@ -1644,7 +1660,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updateFamilyInfo(
           companyId,
           hrId,
-          data
+          data,
         );
         console.log("Service response:", JSON.stringify(response, null, 2));
 
@@ -1657,13 +1673,13 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating family info",
         });
       }
-    })
+    }),
   );
 
   // Update Education Info
   socket.on(
     "hrm/employees/update-education",
-    withRateLimit(async (data) => { 
+    withRateLimit(async (data) => {
       console.log("=== UPDATE EDUCATION INFO EVENT RECEIVED ===");
       console.log("Raw data:", JSON.stringify(data, null, 2));
       try {
@@ -1685,14 +1701,14 @@ const hrDashboardController = (socket, io) => {
         }
         console.log(
           "Education data:",
-          JSON.stringify(data.educationDetails, null, 2)
+          JSON.stringify(data.educationDetails, null, 2),
         );
 
         console.log("Calling updateEducationInfo service...");
         const response = await hrmEmployee.updateEducationInfo(
           companyId,
           hrId,
-          data
+          data,
         );
         console.log("Service response:", JSON.stringify(response, null, 2));
 
@@ -1705,7 +1721,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating education info",
         });
       }
-    })
+    }),
   );
 
   // Update Emergency Info
@@ -1713,7 +1729,7 @@ const hrDashboardController = (socket, io) => {
     "hrm/employees/update-emergency",
     withRateLimit(async (data) => {
       try {
-        const { companyId, hrId } = validateHrAccess(socket); 
+        const { companyId, hrId } = validateHrAccess(socket);
         if (!data || typeof data !== "object") {
           throw new Error("Emergency info update data is required");
         }
@@ -1728,7 +1744,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updateEmergencyContacts(
           companyId,
           hrId,
-          data
+          data,
         );
         socket.emit("hrm/employees/update-emergency-response", response);
       } catch (error) {
@@ -1738,7 +1754,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating emergency info",
         });
       }
-    })
+    }),
   );
 
   // Update Experience Info
@@ -1761,7 +1777,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updateExperienceInfo(
           companyId,
           hrId,
-          data
+          data,
         );
         socket.emit("hrm/employees/update-experience-response", response);
       } catch (error) {
@@ -1771,7 +1787,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating experience info",
         });
       }
-    })
+    }),
   );
 
   // Update About Info
@@ -1794,7 +1810,7 @@ const hrDashboardController = (socket, io) => {
         const response = await hrmEmployee.updateAboutInfo(
           companyId,
           hrId,
-          data
+          data,
         );
         socket.emit("hrm/employees/update-about-response", response);
       } catch (error) {
@@ -1804,7 +1820,7 @@ const hrDashboardController = (socket, io) => {
           error: error.message || "Unexpected error updating about info",
         });
       }
-    })
+    }),
   );
 
   // HR Dashboard - Get All Data

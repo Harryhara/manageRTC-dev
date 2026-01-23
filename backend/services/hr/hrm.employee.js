@@ -3,6 +3,8 @@ import { ObjectId } from "mongodb";
 import { generateId } from "../../utils/generateId.js";
 import { getTenantCollections, client } from "../../config/db.js";
 import { maskAccountNumber } from "../../utils/maskAccNo.js";
+import { clerkClient } from "@clerk/clerk-sdk-node";
+import { sendEmployeeCredentialsEmail } from "../../utils/emailer.js";
 
 // Normalize status to ensure correct case for all possible statuses
 const normalizeStatus = (status) => {
@@ -620,7 +622,7 @@ export const updateEmployeeDetails = async (companyId, hrId, payload) => {
 
     const result = await collections.employees.updateOne(
       { employeeId: employeeId },
-      { $set: updateData }
+      { $set: updateData },
     );
 
     if (result.modifiedCount === 0) {
@@ -832,7 +834,7 @@ export const updatePermissions = async (
   companyId,
   hrId,
   employeeId,
-  payload
+  payload,
 ) => {
   try {
     if (!companyId || !employeeId) {
@@ -932,7 +934,7 @@ export const updatePermissions = async (
       {
         employeeId: new ObjectId(employeeId),
       },
-      { $set: updateData }
+      { $set: updateData },
     );
 
     return {
@@ -995,7 +997,7 @@ export const deleteEmployee = async (companyId, hrId = 1, employeeId) => {
   }
 };
 
-export const checkDuplicates = async (companyId, email, userName, phone = null) => {
+export const checkDuplicates = async (companyId, email, phone = null) => {
   try {
     if (!companyId) {
       return { done: false, error: "Missing companyId" };
@@ -1016,18 +1018,18 @@ export const checkDuplicates = async (companyId, email, userName, phone = null) 
       };
     }
 
-    // Check for duplicate username
-    const userNameExists = await collections.employees.countDocuments({
-      "account.userName": userName,
-    });
+    // // Check for duplicate username
+    // const userNameExists = await collections.employees.countDocuments({
+    //   "account.userName": userName,
+    // });
 
-    if (userNameExists) {
-      return {
-        done: false,
-        error: "Username already exists",
-        field: "userName",
-      };
-    }
+    // if (userNameExists) {
+    //   return {
+    //     done: false,
+    //     error: "Username already exists",
+    //     field: "userName",
+    //   };
+    // }
 
     // Check for duplicate phone if provided
     if (phone) {
@@ -1054,11 +1056,22 @@ export const checkDuplicates = async (companyId, email, userName, phone = null) 
   }
 };
 
+function generateSecurePassword(length = 12) {
+  const chars =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_+[]{}<>?,.";
+
+  const randomValues = new Uint32Array(length);
+  crypto.getRandomValues(randomValues);
+
+  return Array.from(randomValues, (v) => chars[v % chars.length]).join("");
+}
+
 export const addEmployee = async (
   companyId,
   hrId,
+  clerkId,
   employeeData,
-  permissionsData
+  permissionsData,
 ) => {
   try {
     if (!companyId) {
@@ -1129,30 +1142,38 @@ export const addEmployee = async (
     }
 
     // Check username uniqueness
-    const userNameExists = await collections.employees.countDocuments({
-      "account.userName": employeeData.account.userName,
-    });
-
-    if (userNameExists) {
-      return {
-        done: false,
-        error: "Username already exists",
-      };
-    }
+    // const userNameExists = await collections.employees.countDocuments({
+    //   "account.userName": employeeData.account.userName,
+    // });
 
     // Hash password (nested in account)
-    const saltRounds = 10;
-    const hashedPassword = await bcrypt.hash(
-      employeeData.account.password,
-      saltRounds
-    );
+    // const saltRounds = 10;
+    // const hashedPassword = await bcrypt.hash(
+    //   employeeData.account.password,
+    //   saltRounds,
+    // );
+
+    console.log("Came till password gen");
+
+    const password = generateSecurePassword();
+
+    console.log("Email", employeeData.contact.email);
+    console.log("Password", password);
+    console.log("Role", employeeData.account.role);
+    console.log("HR", hrId);
+
+    let role_assigned = "employee";
+    if (employeeData.account.role === "HR") {
+      role_assigned = "hr";
+    }
 
     // Prepare employee data for insertion
     const employeeToInsert = {
       ...employeeData,
       account: {
         ...employeeData.account,
-        password: hashedPassword,
+        password: password,
+        role: employeeData.account.role,
       },
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -1160,9 +1181,8 @@ export const addEmployee = async (
       status: normalizeStatus(employeeData.status || "Active"),
     };
 
-    const employeeResult = await collections.employees.insertOne(
-      employeeToInsert
-    );
+    const employeeResult =
+      await collections.employees.insertOne(employeeToInsert);
 
     if (!employeeResult.insertedId) {
       return { done: false, error: "Failed to add employee." };
@@ -1179,6 +1199,32 @@ export const addEmployee = async (
       updatedAt: new Date(),
     });
 
+    // Add clerk User (Create)
+
+    console.log("user going to in clerk");
+
+    const createdUser = await clerkClient.users.createUser({
+      emailAddress: [employeeData.contact.email],
+      password: password,
+      publicMetadata: {
+        role: role_assigned,
+        company: companyId,
+      },
+    });
+
+    console.log("user created in clerk");
+
+    // Send Email Creds
+    await sendEmployeeCredentialsEmail({
+      to: employeeData.contact.email,
+      password: password,
+      loginLink: `https://${process.env.DOMAIN}/login`, // Login URL for every company should change
+    });
+
+    // Done
+
+    console.log("Cred sent - New employee");
+
     if (!permissionsResult.insertedId) {
       await collections.employees.deleteOne({ _id: employeeId });
       return { done: false, error: "Failed to save permissions." };
@@ -1190,6 +1236,7 @@ export const addEmployee = async (
       message: "Employee and permissions added successfully",
     };
   } catch (error) {
+    console.log(error.message);
     const errorMsg =
       error.message && error.message.includes("duplicate key")
         ? "Employee with same details already exists"
@@ -1307,7 +1354,7 @@ export const getBankStatutory = async (companyId, hrId, employeeId) => {
           updatedBy: 1,
           updatedAt: 1,
         },
-        { session }
+        { session },
       ),
     ]);
 
@@ -1374,7 +1421,7 @@ export const getFamilyInfo = async (companyId, hrId, employeeId) => {
           updatedBy: 1,
           updatedAt: 1,
         },
-        { session }
+        { session },
       ),
     ]);
 
@@ -1441,7 +1488,7 @@ export const getExperienceInfo = async (companyId, hrId, employeeId) => {
           updatedBy: 1,
           updatedAt: 1,
         },
-        { session }
+        { session },
       ),
     ]);
 
@@ -1562,7 +1609,7 @@ export const updateBankStatutory = async (companyId, hrId, payload = {}) => {
     const result = await collections.employees.updateOne(
       { _id: employeeObjId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -1575,7 +1622,7 @@ export const updateBankStatutory = async (companyId, hrId, payload = {}) => {
       done: true,
       message: "Bank and statutory information updated successfully",
       updatedFields: Object.keys(updateData).filter(
-        (key) => !["updatedBy", "updatedAt"].includes(key)
+        (key) => !["updatedBy", "updatedAt"].includes(key),
       ),
     };
   } catch (error) {
@@ -1605,7 +1652,7 @@ export const updateBankDetails = async (companyId, hrId, payload = {}) => {
     // Find employee by employeeId string, not _id
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -1630,7 +1677,7 @@ export const updateBankDetails = async (companyId, hrId, payload = {}) => {
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -1671,7 +1718,7 @@ export const updatePersonalInfo = async (companyId, hrId, payload = {}) => {
     // Find employee by employeeId string, not _id
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -1685,7 +1732,8 @@ export const updatePersonalInfo = async (companyId, hrId, payload = {}) => {
     // Prepare personal info update
     const updateData = {
       "personal.passport.number": payload.personal.passport?.number || "",
-      "personal.passport.expiryDate": payload.personal.passport?.expiryDate || "",
+      "personal.passport.expiryDate":
+        payload.personal.passport?.expiryDate || "",
       "personal.passport.country": payload.personal.passport?.country || "",
       "personal.religion": payload.personal.religion || "",
       "personal.maritalStatus": payload.personal.maritalStatus || "",
@@ -1698,7 +1746,7 @@ export const updatePersonalInfo = async (companyId, hrId, payload = {}) => {
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -1727,7 +1775,7 @@ export const updatePersonalInfo = async (companyId, hrId, payload = {}) => {
 export const updateFamilyInfo = async (companyId, hrId, payload) => {
   const session = client.startSession();
   try {
-    session.startTransaction(); 
+    session.startTransaction();
     if (!companyId || !payload?.employeeId || !payload?.family) {
       await session.abortTransaction();
       return { done: false, error: "Missing required parameters" };
@@ -1738,7 +1786,7 @@ export const updateFamilyInfo = async (companyId, hrId, payload) => {
     // Find employee by employeeId string, not _id
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -1760,7 +1808,7 @@ export const updateFamilyInfo = async (companyId, hrId, payload) => {
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -1803,7 +1851,7 @@ export const updateExperienceInfo = async (companyId, hrId, payload = {}) => {
 
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -1826,7 +1874,7 @@ export const updateExperienceInfo = async (companyId, hrId, payload = {}) => {
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -1866,7 +1914,7 @@ export const updateAboutInfo = async (companyId, hrId, payload = {}) => {
 
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -1883,7 +1931,7 @@ export const updateAboutInfo = async (companyId, hrId, payload = {}) => {
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -1923,13 +1971,13 @@ export const updateEducationInfo = async (companyId, hrId, payload = {}) => {
     }
 
     const collections = getTenantCollections(companyId);
-    
+
     console.log("Looking for employee with employeeId:", payload.employeeId);
 
     // Find employee using string employeeId field, NOT ObjectId
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -1949,7 +1997,7 @@ export const updateEducationInfo = async (companyId, hrId, payload = {}) => {
       "education.startDate": payload.educationDetails.startDate || "",
       "education.endDate": payload.educationDetails.endDate || "",
       updatedBy: hrId,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     };
 
     console.log("Education update data:", JSON.stringify(updateData, null, 2));
@@ -1958,7 +2006,7 @@ export const updateEducationInfo = async (companyId, hrId, payload = {}) => {
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     console.log("Update result:", JSON.stringify(result, null, 2));
@@ -1989,7 +2037,7 @@ export const updateEducationInfo = async (companyId, hrId, payload = {}) => {
 export const updateEmergencyContacts = async (
   companyId,
   hrId,
-  payload = {}
+  payload = {},
 ) => {
   const session = client.startSession();
   try {
@@ -2005,7 +2053,7 @@ export const updateEmergencyContacts = async (
     // Find employee by employeeId string, not _id
     const employee = await collections.employees.findOne(
       { employeeId: payload.employeeId },
-      { session }
+      { session },
     );
 
     if (!employee) {
@@ -2017,8 +2065,8 @@ export const updateEmergencyContacts = async (
     }
 
     // Get the first contact from array (frontend sends array with one object)
-    const contact = Array.isArray(payload.emergencyContacts) 
-      ? payload.emergencyContacts[0] 
+    const contact = Array.isArray(payload.emergencyContacts)
+      ? payload.emergencyContacts[0]
       : payload.emergencyContacts;
 
     const updateData = {
@@ -2035,7 +2083,7 @@ export const updateEmergencyContacts = async (
     const result = await collections.employees.updateOne(
       { employeeId: payload.employeeId },
       { $set: updateData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -2121,7 +2169,7 @@ export const raiseAssetIssue = async (companyId, hrId, payload = {}) => {
     const result = await collections.assets.updateOne(
       { _id: assetObjId },
       { $set: issueData },
-      { session }
+      { session },
     );
 
     if (result.matchedCount === 0) {
@@ -2176,7 +2224,7 @@ export const getBankDetails = async (companyId, hrId, employeeId) => {
           updatedBy: 1,
           updatedAt: 1,
         },
-        { session }
+        { session },
       ),
     ]);
 
@@ -2250,7 +2298,7 @@ export const getEmergencyContacts = async (companyId, hrId, employeeId) => {
           updatedBy: 1,
           updatedAt: 1,
         },
-        { session }
+        { session },
       ),
     ]);
     // if (!hrExists || !employee) {
@@ -2317,56 +2365,73 @@ export const getEmployeeDetails = async (companyId, hrId, employeeId) => {
           // Convert departmentId string to ObjectId for lookup
           departmentObjId: {
             $cond: {
-              if: { $and: [{ $ne: ["$departmentId", null] }, { $ne: ["$departmentId", ""] }] },
+              if: {
+                $and: [
+                  { $ne: ["$departmentId", null] },
+                  { $ne: ["$departmentId", ""] },
+                ],
+              },
               then: { $toObjectId: "$departmentId" },
-              else: null
-            }
+              else: null,
+            },
           },
           // Convert designationId string to ObjectId for lookup
           designationObjId: {
             $cond: {
-              if: { $and: [{ $ne: ["$designationId", null] }, { $ne: ["$designationId", ""] }] },
+              if: {
+                $and: [
+                  { $ne: ["$designationId", null] },
+                  { $ne: ["$designationId", ""] },
+                ],
+              },
               then: { $toObjectId: "$designationId" },
-              else: null
-            }
-          }
-        }
+              else: null,
+            },
+          },
+        },
       },
       {
         $lookup: {
           from: "departments",
           localField: "departmentObjId",
           foreignField: "_id",
-          as: "departmentInfo"
-        }
+          as: "departmentInfo",
+        },
       },
       {
         $lookup: {
           from: "designations",
           localField: "designationObjId",
           foreignField: "_id",
-          as: "designationInfo"
-        }
+          as: "designationInfo",
+        },
       },
       {
         $addFields: {
-          department: { $ifNull: [{ $arrayElemAt: ["$departmentInfo.department", 0] }, ""] },
-          designation: { $ifNull: [{ $arrayElemAt: ["$designationInfo.designation", 0] }, ""] }
-        }
+          department: {
+            $ifNull: [{ $arrayElemAt: ["$departmentInfo.department", 0] }, ""],
+          },
+          designation: {
+            $ifNull: [
+              { $arrayElemAt: ["$designationInfo.designation", 0] },
+              "",
+            ],
+          },
+        },
       },
       {
         $project: {
           departmentObjId: 0,
           designationObjId: 0,
           departmentInfo: 0,
-          designationInfo: 0
-        }
-      }
+          designationInfo: 0,
+        },
+      },
     ];
 
     const results = await collections.employees.aggregate(pipeline).toArray();
     const employee = results[0];
-    
+
     console.log(employee);
 
     if (!employee) {
@@ -2394,7 +2459,7 @@ export const getExperienceInfoByEmpId = async (companyId, employeeId) => {
     const collections = getTenantCollections(companyId);
     const employee = await collections.employees.findOne(
       { employeeId },
-      { experience: 1 }
+      { experience: 1 },
     );
     if (!employee) {
       return { done: false, error: "Employee not found" };
@@ -2413,17 +2478,21 @@ export const getExperienceInfoByEmpId = async (companyId, employeeId) => {
   }
 };
 
-export const checkPhoneExists = async (companyId, phone, excludeEmployeeId = null) => {
+export const checkPhoneExists = async (
+  companyId,
+  phone,
+  excludeEmployeeId = null,
+) => {
   try {
     if (!companyId || !phone) {
       return { done: false, error: "Missing required parameters" };
     }
 
     const collections = getTenantCollections(companyId);
-    
+
     // Build query to check phone existence
     const query = { "contact.phone": phone };
-    
+
     // If updating an employee, exclude their own record from the check
     if (excludeEmployeeId) {
       query._id = { $ne: new ObjectId(excludeEmployeeId) };
