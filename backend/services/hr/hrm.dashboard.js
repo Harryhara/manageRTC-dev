@@ -147,6 +147,7 @@ export const getDashboardStats = async (companyId, year = null) => {
       departmentWiseProjects,
       trainingDistribution,
       allHolidays, // Single query for all active holidays
+      allActiveEmployees, // Employee data for birthdays and anniversaries
     ] = await Promise.all([
       // Employee Statistics
       employees.countDocuments().catch(() => 0),
@@ -569,6 +570,23 @@ export const getDashboardStats = async (companyId, year = null) => {
         ])
         .toArray()
         .catch(() => []),
+
+      // All Active and On Notice Employees (for birthdays and anniversaries)
+      employees
+        .find({ 
+          status: { $in: ["Active", "On Notice"] }
+        })
+        .project({
+          _id: 1,
+          employeeId: 1,
+          firstName: 1,
+          lastName: 1,
+          status: 1,
+          dateOfJoining: 1,
+          "personal.birthday": 1
+        })
+        .toArray()
+        .catch(() => []),
     ]);
 
     console.log(`[HR Dashboard Service] Parallel queries completed successfully`);
@@ -602,6 +620,121 @@ export const getDashboardStats = async (companyId, year = null) => {
       holidayTypeName: holiday.holidayTypeName,
       repeatsEveryYear: holiday.repeatsEveryYear
     }));
+
+    // ============================================
+    // PROCESS EMPLOYEE BIRTHDAYS AND ANNIVERSARIES
+    // ============================================
+    const today = new Date(currentDate);
+    today.setHours(0, 0, 0, 0);
+    
+    const employeeBirthdays = [];
+    const employeeAnniversaries = [];
+
+    allActiveEmployees.forEach(employee => {
+      // Process Birthdays (for Active and On Notice employees)
+      // Birthdays repeat every year (but only show from birth year onwards)
+      if (employee.personal?.birthday) {
+        try {
+          const birthdayDate = new Date(employee.personal.birthday);
+          if (!isNaN(birthdayDate.getTime())) {
+            const birthYear = birthdayDate.getFullYear();
+            
+            // Only create birthday for current year if it's on or after the birth year
+            if (currentYear >= birthYear) {
+              // Create birthday for current year (repeats annually)
+              const birthdayThisYear = new Date(
+                currentYear,
+                birthdayDate.getMonth(),
+                birthdayDate.getDate(),
+                0, 0, 0, 0
+              );
+
+              // Include birthdays for Active and On Notice employees
+              employeeBirthdays.push({
+                _id: employee._id,
+                employeeId: employee.employeeId,
+                firstName: employee.firstName,
+                lastName: employee.lastName,
+                status: employee.status,
+                date: birthdayThisYear,
+                originalDate: birthdayDate,
+                birthYear: birthYear,
+                type: 'birthday',
+                repeatsYearly: true
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`[HR Dashboard] Invalid birthday for employee ${employee.employeeId}:`, error.message);
+        }
+      }
+
+      // Process Work Anniversaries (ONLY for Active employees)
+      // Show "Employee Joined" on joining date (joining year)
+      // Show anniversaries from next year onwards (repeat yearly)
+      if (employee.dateOfJoining && employee.status === "Active") {
+        try {
+          const joiningDate = new Date(employee.dateOfJoining);
+          if (!isNaN(joiningDate.getTime())) {
+            const joiningYear = joiningDate.getFullYear();
+            
+            // Calculate years with company
+            const yearsWithCompany = currentYear - joiningYear;
+
+            // Case 1: Joining year - show "Employee Joined" message
+            if (currentYear === joiningYear) {
+              const joiningDateThisYear = new Date(
+                currentYear,
+                joiningDate.getMonth(),
+                joiningDate.getDate(),
+                0, 0, 0, 0
+              );
+
+              employeeAnniversaries.push({
+                _id: employee._id,
+                employeeId: employee.employeeId,
+                firstName: employee.firstName,
+                lastName: employee.lastName,
+                status: employee.status,
+                date: joiningDateThisYear,
+                originalDate: joiningDate,
+                joiningYear: joiningYear,
+                yearsWithCompany: 0, // Zero years in joining year
+                type: 'joined',
+                repeatsYearly: false
+              });
+            }
+            // Case 2: After joining year - show work anniversaries (repeats yearly)
+            else if (yearsWithCompany > 0 && currentYear > joiningYear) {
+              const anniversaryThisYear = new Date(
+                currentYear,
+                joiningDate.getMonth(),
+                joiningDate.getDate(),
+                0, 0, 0, 0
+              );
+
+              employeeAnniversaries.push({
+                _id: employee._id,
+                employeeId: employee.employeeId,
+                firstName: employee.firstName,
+                lastName: employee.lastName,
+                status: employee.status,
+                date: anniversaryThisYear,
+                originalDate: joiningDate,
+                joiningYear: joiningYear,
+                yearsWithCompany: yearsWithCompany,
+                type: 'anniversary',
+                repeatsYearly: true
+              });
+            }
+          }
+        } catch (error) {
+          console.warn(`[HR Dashboard] Invalid dateOfJoining for employee ${employee.employeeId}:`, error.message);
+        }
+      }
+    });
+
+    console.log(`[HR Dashboard Service] Processed ${employeeBirthdays.length} birthdays and ${employeeAnniversaries.length} anniversaries`);
 
     // Transform employee status data
     const statusMap = {
@@ -692,6 +825,31 @@ export const getDashboardStats = async (companyId, year = null) => {
           originalDate: holiday.originalDate,
           holidayTypeName: holiday.holidayTypeName || "Other",
           repeatsEveryYear: holiday.repeatsEveryYear || false,
+        })),
+        employeeBirthdays: employeeBirthdays.map((birthday) => ({
+          _id: birthday._id.toString(),
+          employeeId: birthday.employeeId,
+          firstName: birthday.firstName,
+          lastName: birthday.lastName,
+          status: birthday.status,
+          date: birthday.date,
+          originalDate: birthday.originalDate,
+          birthYear: birthday.birthYear,
+          type: birthday.type,
+          repeatsYearly: birthday.repeatsYearly
+        })),
+        employeeAnniversaries: employeeAnniversaries.map((anniversary) => ({
+          _id: anniversary._id.toString(),
+          employeeId: anniversary.employeeId,
+          firstName: anniversary.firstName,
+          lastName: anniversary.lastName,
+          status: anniversary.status,
+          date: anniversary.date,
+          originalDate: anniversary.originalDate,
+          joiningYear: anniversary.joiningYear,
+          yearsWithCompany: anniversary.yearsWithCompany,
+          type: anniversary.type,
+          repeatsYearly: anniversary.repeatsYearly
         })),
       },
     };

@@ -51,3 +51,91 @@
     }
   }
 }
+
+/* PrimeReact Tooltip Styling */
+.p-tooltip {
+  max-width: 200px;
+  padding: 0;
+  pointer-events: none;
+  z-index: 9999;
+  
+  .p-tooltip-text {
+    padding: 6px 10px;
+    font-size: 11px;
+    line-height: 1.4;
+    font-weight: 500;
+    background: rgba(0, 0, 0, 0.85);
+    color: #ffffff;
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    pointer-events: none;
+  }
+
+  .p-tooltip-arrow {
+    border-color: rgba(0, 0, 0, 0.85);
+    pointer-events: none;
+  }
+
+  &.p-tooltip-active {
+    .p-tooltip-text {
+      animation: tooltipFadeIn 0.15s ease-in-out;
+    }
+  }
+}
+
+/* Birthday tooltip variant */
+.calendar-birthday-tooltip {
+  pointer-events: none;
+  
+  .p-tooltip-text {
+    background: linear-gradient(135deg, #ec4899 0%, #be185d 100%);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(236, 72, 153, 0.25);
+    pointer-events: none;
+  }
+
+  .p-tooltip-arrow {
+    border-top-color: #ec4899;
+    pointer-events: none;
+  }
+}
+
+/* Holiday tooltip variant */
+.calendar-holiday-tooltip {
+  pointer-events: none;
+  
+  .p-tooltip-text {
+    background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+    color: #ffffff;
+    font-weight: 600;
+    font-size: 11px;
+    padding: 6px 10px;
+    border-radius: 4px;
+    box-shadow: 0 2px 10px rgba(59, 130, 246, 0.25);
+    pointer-events: none;
+  }
+
+  .p-tooltip-arrow {
+    border-top-color: #3b82f6;
+    pointer-events: none;
+  }
+}
+
+/* Tooltip fade-in animation */
+@keyframes tooltipFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

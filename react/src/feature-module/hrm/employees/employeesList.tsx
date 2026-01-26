@@ -855,20 +855,16 @@ const EmployeeList = () => {
         (a.departmentId || "").localeCompare(b.departmentId || ""),
     },
     {
-      title: "Joining Date",
-      dataIndex: "dateOfJoining",
-      sorter: (a: any, b: any) =>
-        new Date(a.dateOfJoining).getTime() -
-        new Date(b.dateOfJoining).getTime(),
-      render: (date: string | Date) => {
-        if (!date) return "-";
-        const d = new Date(date);
-        return d.toLocaleDateString("en-GB", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        });
+      title: "Role",
+      dataIndex: ["account", "role"],
+      render: (text: string, record: any) => {
+        const role = record.account?.role || record.role || "N/A";
+        return <span className="text-capitalize">{role}</span>;
       },
+      sorter: (a: any, b: any) =>
+        (a.account?.role || a.role || "").localeCompare(
+          b.account?.role || b.role || ""
+        ),
     },
     {
       title: "Status",

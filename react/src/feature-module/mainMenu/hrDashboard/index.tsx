@@ -5,6 +5,7 @@ import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import { all_routes } from "../../router/all_routes";
 import { Chart } from "primereact/chart";
 import { Calendar } from "primereact/calendar";
+import { Tooltip } from "primereact/tooltip";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import { useUser } from "@clerk/clerk-react";
 import { useSocket } from "../../../SocketContext";
@@ -119,6 +120,31 @@ interface HRDashboardData {
     holidayTypeName: string;
     repeatsEveryYear: boolean;
   }>;
+  employeeBirthdays?: Array<{
+    _id: string;
+    employeeId: string;
+    firstName: string;
+    lastName: string;
+    status: string;
+    date: string;
+    originalDate: string;
+    birthYear: number;
+    type: string;
+    repeatsYearly: boolean;
+  }>;
+  employeeAnniversaries?: Array<{
+    _id: string;
+    employeeId: string;
+    firstName: string;
+    lastName: string;
+    status: string;
+    date: string;
+    originalDate: string;
+    joiningYear: number;
+    yearsWithCompany: number;
+    type: 'joined' | 'anniversary';
+    repeatsYearly: boolean;
+  }>;
 }
 
 const HRDashboard = () => {
@@ -229,6 +255,161 @@ const HRDashboard = () => {
     return eventDate >= base && eventDate <= futureDate;
   };
 
+  // Helper function to get days until a date from selected date
+  const getDaysUntil = (dateStr: string, selectedDate: Date | null) => {
+    const baseDate = selectedDate || new Date();
+    const base = new Date(baseDate);
+    base.setHours(0, 0, 0, 0);
+    
+    const eventDate = new Date(dateStr);
+    eventDate.setHours(0, 0, 0, 0);
+    
+    const diffTime = eventDate.getTime() - base.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    return diffDays;
+  };
+
+  // Helper function to check if two dates match by day and month (ignoring year)
+  const isSameDayAndMonth = (date1: Date, date2: Date): boolean => {
+    return date1.getDate() === date2.getDate() && date1.getMonth() === date2.getMonth();
+  };
+
+  // Helper function to get employee events for selected date
+  const getEmployeeEventsForDate = (selectedDate: Date | null) => {
+    const events: Array<{
+      type: 'birthday' | 'anniversary' | 'birthday-reminder' | 'anniversary-reminder';
+      employee: any;
+      daysUntil?: number;
+      message: string;
+    }> = [];
+    
+    const checkDate = selectedDate || new Date();
+    const check = new Date(checkDate);
+    check.setHours(0, 0, 0, 0);
+    const checkYear = check.getFullYear();
+    
+    // Check birthdays (Active and On Notice employees only)
+    if (dashboardData.employeeBirthdays) {
+      dashboardData.employeeBirthdays.forEach(birthday => {
+        // Birthdays are for Active and On Notice employees
+        if (birthday.status !== "Active" && birthday.status !== "On Notice") {
+          return; // Skip employees with other statuses
+        }
+        
+        // Don't show birthday if checking a year before birth year
+        if (checkYear < birthday.birthYear) {
+          return;
+        }
+        
+        const birthdayDate = new Date(birthday.date);
+        birthdayDate.setHours(0, 0, 0, 0);
+        
+        // Check if selected date matches birthday (by day and month, ignoring year)
+        // This allows viewing birthdays from any year
+        const isBirthdayMatch = isSameDayAndMonth(check, birthdayDate);
+        
+        if (isBirthdayMatch) {
+          // This is the actual birthday date
+          events.push({
+            type: 'birthday',
+            employee: birthday,
+            message: `Today is ${birthday.firstName} ${birthday.lastName}'s (${birthday.employeeId}) birthday. Wishing them a wonderful year ahead! 🎉`
+          });
+        } else {
+          // Check for reminders based on days until (only for future dates)
+          const daysUntil = getDaysUntil(birthday.date, selectedDate);
+          
+          // 1 day reminder (tomorrow)
+          if (daysUntil === 1) {
+            const dateStr = birthdayDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            events.push({
+              type: 'birthday-reminder',
+              employee: birthday,
+              daysUntil: 1,
+              message: `Reminder: ${birthday.firstName} ${birthday.lastName} (${birthday.employeeId}) celebrates their birthday tomorrow (${dateStr}). Don't forget to send your wishes!`
+            });
+          }
+          // 7 days reminder
+          else if (daysUntil === 7) {
+            const dateStr = birthdayDate.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+            events.push({
+              type: 'birthday-reminder',
+              employee: birthday,
+              daysUntil: 7,
+              message: `Reminder: ${birthday.firstName} ${birthday.lastName} (${birthday.employeeId}) has a birthday coming up in 7 days on ${dateStr}. You may plan wishes or celebrations.`
+            });
+          }
+        }
+      });
+    }
+    
+    // Check anniversaries (ONLY Active employees)
+    if (dashboardData.employeeAnniversaries) {
+      dashboardData.employeeAnniversaries.forEach(anniversary => {
+        // Anniversaries are ONLY for Active employees (already filtered in backend)
+        if (anniversary.status !== "Active") {
+          return; // Extra safety check - skip non-Active employees
+        }
+        
+        // Year validation based on event type
+        if (anniversary.type === 'joined') {
+          // "Joined" events only show in the joining year
+          if (checkYear !== anniversary.joiningYear) {
+            return;
+          }
+        } else if (anniversary.type === 'anniversary') {
+          // Work anniversaries only show after joining year
+          if (checkYear <= anniversary.joiningYear) {
+            return;
+          }
+        }
+        
+        const anniversaryDate = new Date(anniversary.date);
+        anniversaryDate.setHours(0, 0, 0, 0);
+        
+        // Check if selected date matches anniversary (by day and month, ignoring year)
+        const isAnniversaryMatch = isSameDayAndMonth(check, anniversaryDate);
+        
+        if (isAnniversaryMatch) {
+          // This is the actual date
+          if (anniversary.type === 'joined') {
+            // Employee joining day
+            events.push({
+              type: 'anniversary',
+              employee: anniversary,
+              message: `${anniversary.firstName} ${anniversary.lastName} (${anniversary.employeeId}) joined the company Today. Welcome to the team! 🎉`
+            });
+          } else {
+            // Work anniversary
+            events.push({
+              type: 'anniversary',
+              employee: anniversary,
+              message: `${anniversary.firstName} ${anniversary.lastName} (${anniversary.employeeId}) is celebrating their work anniversary today (${anniversary.yearsWithCompany} ${anniversary.yearsWithCompany === 1 ? 'year' : 'years'} with the company).`
+            });
+          }
+        } else {
+          // Check for reminders based on days until (only for actual anniversaries, not joining day)
+          if (anniversary.type === 'anniversary') {
+            const daysUntil = getDaysUntil(anniversary.date, selectedDate);
+            
+            // 30 days reminder
+            if (daysUntil === 30) {
+              events.push({
+                type: 'anniversary-reminder',
+                employee: anniversary,
+                daysUntil: 30,
+                message: `Reminder: ${anniversary.firstName} ${anniversary.lastName} completes ${anniversary.yearsWithCompany + 1} ${anniversary.yearsWithCompany + 1 === 1 ? 'year' : 'years'} with the company in 30 days.`
+              });
+            }
+          }
+        }
+      });
+    }
+    
+    return events;
+  };
+
   // Helper function to check if a date is a holiday and return holiday info
   // Handles repeating yearly holidays by matching day+month only
   const getHolidayForDate = (date: Date) => {
@@ -254,32 +435,142 @@ const HRDashboard = () => {
     });
   };
 
-  // Date template for calendar to highlight holidays
+  // Helper function to check if a date is a birthday (Active and On Notice employees only)
+  const getBirthdayForDate = (date: Date) => {
+    if (!dashboardData.employeeBirthdays) return null;
+    
+    const checkDate = new Date(date);
+    checkDate.setHours(0, 0, 0, 0);
+    const checkYear = checkDate.getFullYear();
+    
+    return dashboardData.employeeBirthdays.find(birthday => {
+      // Only show birthdays for Active and On Notice employees
+      if (birthday.status !== "Active" && birthday.status !== "On Notice") {
+        return false;
+      }
+      
+      // Don't show birthday if checking a year before birth year
+      if (checkYear < birthday.birthYear) {
+        return false;
+      }
+      
+      const birthdayDate = new Date(birthday.date);
+      birthdayDate.setHours(0, 0, 0, 0);
+      
+      // Match day and month only (birthdays repeat yearly)
+      return (
+        birthdayDate.getDate() === checkDate.getDate() &&
+        birthdayDate.getMonth() === checkDate.getMonth()
+      );
+    });
+  };
+
+  // Date template for calendar to highlight holidays and birthdays
   const dateTemplate = (date: any) => {
     // PrimeReact Calendar passes {day, month, year, ...} object
     // Construct a proper Date object
     const fullDate = new Date(date.year, date.month, date.day);
     const holiday = getHolidayForDate(fullDate);
+    const birthday = getBirthdayForDate(fullDate);
+    
+    // Create unique ID for tooltip target
+    const dateId = `cal-date-${date.year}-${date.month}-${date.day}`;
+    
+    // Priority: Birthday > Holiday
+    if (birthday) {
+      return (
+        <>
+          <div
+            className="p-highlight calendar-birthday-date"
+            data-pr-tooltip={`🎂 ${birthday.firstName} ${birthday.lastName}'s Birthday`}
+            data-pr-position="top"
+            data-pr-id={`birthday-${date.year}-${date.month}-${date.day}`}
+            style={{
+              backgroundColor: "#fff0f6",
+              borderRadius: "8px",
+              fontWeight: "600",
+              color: "#eb2f96",
+              width: "2.5rem",
+              height: "2.5rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              border: "2px solid #ffadd2",
+              cursor: "default",
+              transition: "all 0.2s ease",
+              userSelect: "none",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.1)";
+              e.currentTarget.style.backgroundColor = "#ffd6e7";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.backgroundColor = "#fff0f6";
+            }}
+            onClick={(e) => {
+              // Trigger mouseLeave to hide tooltip naturally
+              const mouseLeaveEvent = new MouseEvent('mouseleave', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+              });
+              e.currentTarget.dispatchEvent(mouseLeaveEvent);
+              // Blur to ensure tooltip hides
+              e.currentTarget.blur();
+            }}
+          >
+            {date.day}
+          </div>
+        </>
+      );
+    }
     
     if (holiday) {
       return (
-        <div
-          className="p-highlight"
-          style={{
-            backgroundColor: "#e7f3ff",
-            borderRadius: "50%",
-            fontWeight: "bold",
-            color: "#1677ff",
-            width: "2.5rem",
-            height: "2.5rem",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-          title={`${holiday.title} - ${holiday.holidayTypeName}`}
-        >
-          {date.day}
-        </div>
+        <>
+          <div
+            className="p-highlight calendar-holiday-date"
+            data-pr-tooltip={`${holiday.title} - ${holiday.holidayTypeName}`}
+            data-pr-position="top"
+            data-pr-id={`holiday-${date.year}-${date.month}-${date.day}`}
+            style={{
+              backgroundColor: "#e7f3ff",
+              borderRadius: "50%",
+              fontWeight: "bold",
+              color: "#1677ff",
+              width: "2.5rem",
+              height: "2.5rem",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "default",
+              transition: "all 0.2s ease",
+              userSelect: "none",
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.1)";
+              e.currentTarget.style.backgroundColor = "#bae0ff";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1)";
+              e.currentTarget.style.backgroundColor = "#e7f3ff";
+            }}
+            onClick={(e) => {
+              // Trigger mouseLeave to hide tooltip naturally
+              const mouseLeaveEvent = new MouseEvent('mouseleave', {
+                view: window,
+                bubbles: true,
+                cancelable: true
+              });
+              e.currentTarget.dispatchEvent(mouseLeaveEvent);
+              // Blur to ensure tooltip hides
+              e.currentTarget.blur();
+            }}
+          >
+            {date.day}
+          </div>
+        </>
       );
     }
     
@@ -917,6 +1208,25 @@ const HRDashboard = () => {
                     inline={true}
                     dateTemplate={dateTemplate}
                   />
+                  {/* Tooltips for calendar dates */}
+                  <Tooltip 
+                    target=".calendar-birthday-date" 
+                    className="calendar-birthday-tooltip"
+                    event="hover"
+                    position="top"
+                    showDelay={300}
+                    hideDelay={0}
+                    autoHide={true}
+                  />
+                  <Tooltip 
+                    target=".calendar-holiday-date" 
+                    className="calendar-holiday-tooltip"
+                    event="hover"
+                    position="top"
+                    showDelay={300}
+                    hideDelay={0}
+                    autoHide={true}
+                  />
                 </div>
               </div>
             </div>
@@ -1010,6 +1320,119 @@ const HRDashboard = () => {
 
                   {/* Events List */}
                   <div style={{ maxHeight: "320px", overflowY: "auto" }}>
+                    {/* Employee Birthday and Anniversary Events */}
+                    {(() => {
+                      const employeeEvents = getEmployeeEventsForDate(miniCalendarDate);
+                      
+                      return employeeEvents.map((event, index) => {
+                        if (event.type === 'birthday') {
+                          return (
+                            <div key={`birthday-${event.employee._id}`} className="border-start border-warning border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-warning-transparent me-2 mt-1">
+                                      <i className="ti ti-cake fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">🎂 Birthday Celebration</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-warning">
+                                        <i className="ti ti-gift me-1"></i>Send birthday wishes!
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-warning fs-10">Today</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        if (event.type === 'birthday-reminder') {
+                          return (
+                            <div key={`birthday-reminder-${event.employee._id}-${event.daysUntil}`} className="border-start border-info border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-info-transparent me-2 mt-1">
+                                      <i className="ti ti-bell fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">🎈 Birthday Reminder</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-info">
+                                        <i className="ti ti-calendar-time me-1"></i>Plan ahead for celebrations
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-info fs-10">{event.daysUntil}d</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        if (event.type === 'anniversary') {
+                          return (
+                            <div key={`anniversary-${event.employee._id}`} className="border-start border-success border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-success-transparent me-2 mt-1">
+                                      <i className="ti ti-trophy fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">🎊 Work Anniversary</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-success">
+                                        <i className="ti ti-award me-1"></i>Celebrate their dedication!
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-success fs-10">Today</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        if (event.type === 'anniversary-reminder') {
+                          return (
+                            <div key={`anniversary-reminder-${event.employee._id}-${event.daysUntil}`} className="border-start border-secondary border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-secondary-transparent me-2 mt-1">
+                                      <i className="ti ti-bell fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">📅 Anniversary Reminder</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-secondary">
+                                        <i className="ti ti-calendar-check me-1"></i>Prepare recognition plans
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-secondary fs-10">{event.daysUntil}d</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+                        
+                        return null;
+                      });
+                    })()}
+
                     {/* Notice Period Ending Events */}
                     {dashboardData.stats?.resignationsLast30Days && dashboardData.stats.resignationsLast30Days > 0 ? (
                       <div className="border-start border-warning border-3 mb-3 pb-2">
@@ -1030,81 +1453,6 @@ const HRDashboard = () => {
                               </div>
                             </div>
                             <span className="badge badge-soft-warning fs-10">Urgent</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {/* New Joiners Today/This Week */}
-                    {dashboardData.stats?.newJoiners && dashboardData.stats.newJoiners > 0 ? (
-                      <div className="border-start border-success border-3 mb-3 pb-2">
-                        <div className="ps-3">
-                          <div className="d-flex align-items-start justify-content-between mb-1">
-                            <div className="d-flex align-items-start">
-                              <span className="avatar avatar-xs rounded-circle bg-success-transparent me-2 mt-1">
-                                <i className="ti ti-user-check fs-12"></i>
-                              </span>
-                              <div>
-                                <h6 className="fw-semibold mb-1 fs-13">New Joiners This Month</h6>
-                                <p className="mb-1 fs-12 text-muted">
-                                  {dashboardData.stats.newJoiners} new employee(s) joined recently
-                                </p>
-                                <p className="mb-0 fs-11 text-success">
-                                  <i className="ti ti-checks me-1"></i>Onboarding in progress
-                                </p>
-                              </div>
-                            </div>
-                            <span className="badge badge-soft-success fs-10">Active</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {/* Training Events */}
-                    {dashboardData.trainingStats?.activeTrainings && dashboardData.trainingStats.activeTrainings > 0 ? (
-                      <div className="border-start border-info border-3 mb-3 pb-2">
-                        <div className="ps-3">
-                          <div className="d-flex align-items-start justify-content-between mb-1">
-                            <div className="d-flex align-items-start">
-                              <span className="avatar avatar-xs rounded-circle bg-info-transparent me-2 mt-1">
-                                <i className="ti ti-school fs-12"></i>
-                              </span>
-                              <div>
-                                <h6 className="fw-semibold mb-1 fs-13">Active Training Sessions</h6>
-                                <p className="mb-1 fs-12 text-muted">
-                                  {dashboardData.trainingStats.activeTrainings} training(s) ongoing with {dashboardData.trainingStats.employeesInTraining || 0} participants
-                                </p>
-                                <p className="mb-0 fs-11 text-info">
-                                  <i className="ti ti-progress me-1"></i>In progress
-                                </p>
-                              </div>
-                            </div>
-                            <span className="badge badge-soft-info fs-10">Ongoing</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {/* Projects Due Soon */}
-                    {dashboardData.projectStats?.activeProjects && dashboardData.projectStats.activeProjects > 0 ? (
-                      <div className="border-start border-purple border-3 mb-3 pb-2">
-                        <div className="ps-3">
-                          <div className="d-flex align-items-start justify-content-between mb-1">
-                            <div className="d-flex align-items-start">
-                              <span className="avatar avatar-xs rounded-circle bg-purple-transparent me-2 mt-1">
-                                <i className="ti ti-briefcase fs-12"></i>
-                              </span>
-                              <div>
-                                <h6 className="fw-semibold mb-1 fs-13">Active Projects</h6>
-                                <p className="mb-1 fs-12 text-muted">
-                                  {dashboardData.projectStats.activeProjects} project(s) in progress
-                                </p>
-                                <p className="mb-0 fs-11 text-purple">
-                                  <i className="ti ti-clock-hour-3 me-1"></i>Monitor deadlines closely
-                                </p>
-                              </div>
-                            </div>
-                            <span className="badge badge-soft-purple fs-10">Active</span>
                           </div>
                         </div>
                       </div>
@@ -1252,82 +1600,6 @@ const HRDashboard = () => {
                         </div>
                       </div>
                     ) : null}
-
-                    {/* Policy Review Reminder */}
-                    {dashboardData.policyStats?.policiesCreatedLast30Days && dashboardData.policyStats.policiesCreatedLast30Days > 0 ? (
-                      <div className="border-start border-secondary border-3 mb-3 pb-2">
-                        <div className="ps-3">
-                          <div className="d-flex align-items-start justify-content-between mb-1">
-                            <div className="d-flex align-items-start">
-                              <span className="avatar avatar-xs rounded-circle bg-secondary-transparent me-2 mt-1">
-                                <i className="ti ti-file-text fs-12"></i>
-                              </span>
-                              <div>
-                                <h6 className="fw-semibold mb-1 fs-13">New Policy Updates</h6>
-                                <p className="mb-1 fs-12 text-muted">
-                                  {dashboardData.policyStats.policiesCreatedLast30Days} new policy/policies added this month
-                                </p>
-                                <p className="mb-0 fs-11 text-secondary">
-                                  <i className="ti ti-bell me-1"></i>Ensure employee acknowledgment
-                                </p>
-                              </div>
-                            </div>
-                            <span className="badge badge-soft-secondary fs-10">Review</span>
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    {/* Date-specific Information Event */}
-                    {(() => {
-                      const selectedDate = miniCalendarDate || new Date();
-                      const selected = new Date(selectedDate);
-                      selected.setHours(0, 0, 0, 0);
-                      const today = new Date();
-                      today.setHours(0, 0, 0, 0);
-                      
-                      const isPast = selected < today;
-                      const isFuture = selected > today;
-                      
-                      // Show date-specific info card
-                      return (
-                        <div className="border-start border-info border-3 mb-3 pb-2">
-                          <div className="ps-3">
-                            <div className="d-flex align-items-start justify-content-between mb-1">
-                              <div className="d-flex align-items-start">
-                                <span className="avatar avatar-xs rounded-circle bg-info-transparent me-2 mt-1">
-                                  <i className="ti ti-info-circle fs-12"></i>
-                                </span>
-                                <div>
-                                  <h6 className="fw-semibold mb-1 fs-13">
-                                    {selected.getTime() === today.getTime() ? "Today's Status" : 
-                                     isPast ? "Historical Data" : "Future Planning"}
-                                  </h6>
-                                  <p className="mb-1 fs-12 text-muted">
-                                    {selected.getTime() === today.getTime() ? 
-                                      `${dashboardData.stats?.activeEmployees || 0} active employees currently` :
-                                     isPast ? 
-                                      "Past date - Historical events may not be available" :
-                                      "Future date - Plan ahead for upcoming activities"}
-                                  </p>
-                                  <p className="mb-0 fs-11 text-info">
-                                    <i className="ti ti-calendar-stats me-1"></i>
-                                    {selected.getTime() === today.getTime() ? 
-                                      "Real-time updates" :
-                                     isPast ? 
-                                      "View historical records" :
-                                      "Schedule and prepare"}
-                                  </p>
-                                </div>
-                              </div>
-                              <span className={`badge badge-soft-${selected.getTime() === today.getTime() ? 'success' : isPast ? 'secondary' : 'info'} fs-10`}>
-                                {selected.getTime() === today.getTime() ? 'Current' : isPast ? 'Past' : 'Future'}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
 
                     {/* Empty State - Only when truly no events */}
                     {!dashboardData.stats?.resignationsLast30Days &&

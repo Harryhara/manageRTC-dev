@@ -32,6 +32,13 @@ interface Designation {
   status: string;
 }
 
+interface DepartmentStats {
+  totalDepartments: number;
+  activeCount: number;
+  inactiveCount: number;
+  recentCount: number;
+}
+
 const statusChoose = [
   { value: "Active", label: "Active" },
   { value: "Inactive", label: "Inactive" },
@@ -56,6 +63,12 @@ const Department = () => {
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [targetDepartmentId, setTargetDepartmentId] = useState<string>("");
   const [isReassigning, setIsReassigning] = useState(false);
+  const [stats, setStats] = useState<DepartmentStats>({
+    totalDepartments: 0,
+    activeCount: 0,
+    inactiveCount: 0,
+    recentCount: 0,
+  });
   const socket = useSocket() as Socket | null;
 
   useEffect(() => {
@@ -102,6 +115,7 @@ const Department = () => {
         setDepartments(response.data);
         setError(null);
         setLoading(false);
+        setStats(response.stats);
       } else {
         setError(response.error || "Failed to fetch department");
         setLoading(false);
