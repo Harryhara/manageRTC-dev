@@ -110,7 +110,46 @@ const Holidays = () => {
   const [filterFromDate, setFilterFromDate] = useState<string>("");
   const [filterToDate, setFilterToDate] = useState<string>("");
 
+  // Stats state for displaying holiday statistics
+  const [stats, setStats] = useState({
+    totalHolidays: 0,
+    upcomingCount: 0,
+    thisMonthCount: 0,
+    totalTypesCount: 0
+  });
+
   const socket = useSocket() as Socket | null;
+  
+  // Calculate holiday statistics
+  const calculateStats = () => {
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    
+    const totalHolidays = holiday.length;
+    
+    const upcomingCount = holiday.filter(h => {
+      if (!h.date) return false;
+      const holidayDate = new Date(h.date);
+      return holidayDate > now;
+    }).length;
+    
+    const thisMonthCount = holiday.filter(h => {
+      if (!h.date) return false;
+      const holidayDate = new Date(h.date);
+      return holidayDate.getMonth() === currentMonth && 
+             holidayDate.getFullYear() === currentYear;
+    }).length;
+    
+    const totalTypesCount = holidayTypes.length;
+    
+    setStats({
+      totalHolidays,
+      upcomingCount,
+      thisMonthCount,
+      totalTypesCount
+    });
+  };
   
   // Use modal cleanup hook for automatic cleanup on unmount
   useModalCleanup();
@@ -803,6 +842,11 @@ const Holidays = () => {
     validateDateRange();
   }, [filterFromDate, filterToDate]);
 
+  // Effect to recalculate stats when data changes
+  useEffect(() => {
+    calculateStats();
+  }, [holiday, holidayTypes]);
+
   // Filter holidays based on selected filters
   const getFilteredHolidays = () => {
     let filtered = [...holiday];
@@ -1013,6 +1057,94 @@ const Holidays = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
+          {/* Stats Cards */}
+          <div className="row">
+            {/* Total Holidays */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-dark rounded-circle">
+                        <i className="ti ti-calendar-event" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Total Holidays
+                      </p>
+                      <h4>{stats?.totalHolidays || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Total Holidays */}
+            {/* Upcoming */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-success rounded-circle">
+                        <i className="ti ti-calendar-check" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Upcoming
+                      </p>
+                      <h4>{stats?.upcomingCount || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Upcoming */}
+            {/* This Month */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-info rounded-circle">
+                        <i className="ti ti-calendar-month" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        This Month
+                      </p>
+                      <h4>{stats?.thisMonthCount || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /This Month */}
+            {/* Total Types */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-warning rounded-circle">
+                        <i className="ti ti-tag" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Total Types
+                      </p>
+                      <h4>{stats?.totalTypesCount || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Total Types */}
+          </div>
+          {/* /Stats Cards */}
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
               <h5>Holidays List</h5>

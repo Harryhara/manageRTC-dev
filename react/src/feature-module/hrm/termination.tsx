@@ -35,9 +35,11 @@ type TerminationRow = {
   processedAt?: string;
 };
 
-type Stats = {
-  totalTerminations: string;
-  recentTerminations: string;
+type TerminationStats = {
+  total: number;
+  processed: number;
+  pending: number;
+  thisMonth: number;
 };
 
 type DepartmentRow = {
@@ -52,9 +54,11 @@ const Termination = () => {
   const [rowsDepartments, setRowsDepartments] = useState<DepartmentRow[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<{ value: string; label: string }[]>([]);
   const [employeeOptions, setEmployeeOptions] = useState<{ value: string; label: string }[]>([]);
-  const [stats, setStats] = useState<Stats>({
-    totalTerminations: "0",
-    recentTerminations: "0",
+  const [stats, setStats] = useState<TerminationStats>({
+    total: 0,
+    processed: 0,
+    pending: 0,
+    thisMonth: 0,
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [deletingTerminationId, setDeletingTerminationId] = useState<string | null>(null);
@@ -275,6 +279,26 @@ const Termination = () => {
       setStats(res.data);
     }
   }, []);
+
+  // Calculate stats from current termination data
+  const calculateStats = useCallback(() => {
+    if (rows.length > 0) {
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth();
+      const currentYear = currentDate.getFullYear();
+
+      const calculatedStats: TerminationStats = {
+        total: rows.length,
+        processed: rows.filter(r => r.status === 'processed').length,
+        pending: rows.filter(r => r.status === 'pending').length,
+        thisMonth: rows.filter(r => {
+          const termDate = new Date(r.terminationDate);
+          return termDate.getMonth() === currentMonth && termDate.getFullYear() === currentYear;
+        }).length,
+      };
+      setStats(calculatedStats);
+    }
+  }, [rows]);
 
   const onAddResponse = useCallback((res: any) => {
     console.log("[Termination] ===== onAddResponse CALLED =====");
@@ -937,6 +961,11 @@ const Termination = () => {
     fetchStats();
   }, [socket, fetchList, fetchDepartmentsList, fetchStats, filterType, customRange]);
 
+  // Calculate stats when termination data changes
+  useEffect(() => {
+    calculateStats();
+  }, [calculateStats]);
+
   // Add Bootstrap modal event listeners for cleanup
   useEffect(() => {
     const deleteModalElement = document.getElementById("delete_modal");
@@ -1249,6 +1278,79 @@ const Termination = () => {
               </div>
             </div>
           </div>
+
+          {/* Termination Stats Cards */}
+          <div className="row">
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-primary-light rounded-circle p-2">
+                      <i className="ti ti-user-minus text-primary fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.total}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Total Terminations</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-success-light rounded-circle p-2">
+                      <i className="ti ti-check text-success fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.processed}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Processed</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-warning-light rounded-circle p-2">
+                      <i className="ti ti-clock text-warning fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.pending}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Pending</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-info-light rounded-circle p-2">
+                      <i className="ti ti-calendar text-info fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.thisMonth}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">This Month</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* /Termination Stats Cards */}
 
           {/* Table + Filters */}
           <div className="row">

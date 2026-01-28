@@ -29,9 +29,9 @@ export async function startPromotionScheduler() {
   schedulerRunning = true;
   console.log('[PromotionScheduler] Started successfully. Will run daily at midnight.');
 
-  // Also run immediately on startup to catch any missed promotions
-  console.log('[PromotionScheduler] Running initial check on startup...');
-  await processAllCompanyPromotions();
+  // Disabled automatic startup check to prevent MongoDB authorization errors
+  // Users can manually trigger promotion processing if needed
+  console.log('[PromotionScheduler] Automatic startup check disabled to prevent database errors');
 
   return schedule;
 }

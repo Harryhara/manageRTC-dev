@@ -31,6 +31,13 @@ interface Departments {
   status: string
 }
 
+interface DesignationStats {
+  total: number;
+  active: number;
+  inactive: number;
+  emptyDesignations: number;
+}
+
 const statusChoose = [
   { value: "Active", label: "Active" },
   { value: "Inactive", label: "Inactive" },
@@ -64,6 +71,12 @@ const Designations = () => {
   const [showReassignModal, setShowReassignModal] = useState(false);
   const [targetDesignationId, setTargetDesignationId] = useState("");
   const [isReassigning, setIsReassigning] = useState(false);
+  const [stats, setStats] = useState<DesignationStats>({
+    total: 0,
+    active: 0,
+    inactive: 0,
+    emptyDesignations: 0,
+  });
 
   const socket = useSocket() as Socket | null;
 
@@ -83,6 +96,7 @@ const Designations = () => {
 
     socket.emit("hr/departments/get");
     socket.emit("hrm/designations/get");
+    socket.emit("hrm/designations/stats");
 
     const handleDepartmentsResponse = (response: any) => {
       if (!isMounted) return;
@@ -104,7 +118,10 @@ const Designations = () => {
         setLoading(false);
         // Reset form fields after successful submission
         resetAddDesignationForm();
-        socket?.emit("hrm/designations/get");
+        if (socket) {
+          socket.emit("hrm/designations/get");
+          socket.emit("hrm/designations/stats");
+        }
       } else {
         setError(response.error || "Failed to add Designations");
         setLoading(false);
@@ -165,9 +182,17 @@ const Designations = () => {
         hideModal('reassign_delete_designation_modal');
         if (socket) {
           socket.emit("hrm/designations/get");
+          socket.emit("hrm/designations/stats");
         }
       } else {
         setError(response.error || "Failed to reassign and delete designation");
+      }
+    };
+
+    const handleDesignationStatsResponse = (response: any) => {
+      if (!isMounted) return;
+      if (response.done && response.data) {
+        setStats(response.data);
       }
     };
 
@@ -178,6 +203,7 @@ const Designations = () => {
     socket.on("hrm/designations/delete-response", handleDeleteResponse);
     socket.on("hrm/designations/reassign-delete-response", handleReassignDeleteResponse);
     socket.on("hr/departments/get-response", handleDepartmentsResponse);
+    socket.on("hrm/designations/stats-response", handleDesignationStatsResponse);
 
     return () => {
       isMounted = false;
@@ -188,6 +214,7 @@ const Designations = () => {
       socket.off("hrm/designations/delete-response", handleDeleteResponse);
       socket.off("hrm/designations/reassign-delete-response", handleReassignDeleteResponse);
       socket.off("hr/departments/get-response", handleDepartmentsResponse);
+      socket.off("hrm/designations/stats-response", handleDesignationStatsResponse);
     };
   }, [socket]);
 
@@ -658,6 +685,99 @@ const Designations = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
+          
+          {/* Stats Cards */}
+          <div className="row">
+            {/* Total Designations */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-primary rounded-circle">
+                        <i className="ti ti-briefcase" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Total Designations
+                      </p>
+                      <h4>{stats?.total || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Total Designations */}
+            
+            {/* Active Designations */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-success rounded-circle">
+                        <i className="ti ti-circle-check" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Active Designations
+                      </p>
+                      <h4>{stats?.active || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Active Designations */}
+            
+            {/* Inactive Designations */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-danger rounded-circle">
+                        <i className="ti ti-circle-x" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Inactive Designations
+                      </p>
+                      <h4>{stats?.inactive || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Inactive Designations */}
+            
+            {/* No Employees Assigned */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-warning rounded-circle">
+                        <i className="ti ti-users-off" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        No Employees Assigned
+                      </p>
+                      <h4>{stats?.emptyDesignations || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /No Employees Assigned */}
+          </div>
+          {/* /Stats Cards */}
+          
           {/* Performance Indicator list */}
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">

@@ -32,10 +32,12 @@ type ResignationRow = {
   approvedAt?: string;
 };
 
-type Stats = {
-  totalResignations: string;
-  recentResignations: string;
-}
+type ResignationStats = {
+  total: number;
+  pending: number;
+  onNotice: number;
+  resigned: number;
+};
 
 const Resignation = () => {
   const socket = useSocket() as Socket | null;
@@ -43,9 +45,11 @@ const Resignation = () => {
   const [rows, setRows] = useState<ResignationRow[]>([]);
   const [departmentOptions, setDepartmentOptions] = useState<{ value: string; label: string }[]>([]);
     const [employeeOptions, setEmployeeOptions] = useState<{ value: string; label: string }[]>([]);
-  const [stats, setStats] = useState<Stats>({
-    totalResignations: "0",
-    recentResignations: "0",
+  const [stats, setStats] = useState<ResignationStats>({
+    total: 0,
+    pending: 0,
+    onNotice: 0,
+    resigned: 0,
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [deletingResignationId, setDeletingResignationId] = useState<string | null>(null);
@@ -298,6 +302,19 @@ const Resignation = () => {
       setStats(res.data);
     }
   }, []);
+
+  // Calculate stats from current resignation data
+  const calculateStats = useCallback(() => {
+    if (rows.length > 0) {
+      const calculatedStats: ResignationStats = {
+        total: rows.length,
+        pending: rows.filter(r => r.resignationStatus === 'pending').length,
+        onNotice: rows.filter(r => r.resignationStatus === 'approved' && new Date(r.resignationDate) > new Date()).length,
+        resigned: rows.filter(r => r.resignationStatus === 'approved' && new Date(r.resignationDate) <= new Date()).length,
+      };
+      setStats(calculatedStats);
+    }
+  }, [rows]);
 
   const onAddResponse = useCallback((res: any) => {
     console.log("[Resignation] onAddResponse received:", res);
@@ -707,6 +724,11 @@ const Resignation = () => {
     fetchDepartments();
     fetchStats();
   }, [socket, fetchList, fetchDepartments, fetchStats, filterType, customRange]);
+
+  // Calculate stats when resignation data changes
+  useEffect(() => {
+    calculateStats();
+  }, [calculateStats]);
 
   // Add Bootstrap modal event listeners for cleanup
   useEffect(() => {
@@ -1205,6 +1227,80 @@ const Resignation = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
+          
+          {/* Resignation Stats Cards */}
+          <div className="row">
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-primary-light rounded-circle p-2">
+                      <i className="ti ti-user-off text-primary fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.total}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Total Resignations</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-warning-light rounded-circle p-2">
+                      <i className="ti ti-clock text-warning fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.pending}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Pending</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-info-light rounded-circle p-2">
+                      <i className="ti ti-bell text-info fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.onNotice}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">On Notice</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-danger-light rounded-circle p-2">
+                      <i className="ti ti-user-x text-danger fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.resigned}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Resigned</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* /Resignation Stats Cards */}
+          
           {/* Resignation List */}
           <div className="row">
             <div className="col-sm-12">

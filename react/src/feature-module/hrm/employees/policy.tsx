@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { all_routes } from '../../router/all_routes'
 import { Link } from 'react-router-dom'
 import Table from "../../../core/common/dataTable/index";
@@ -44,6 +44,13 @@ interface Designation {
   designation: string;
   departmentId: string;
   status: string;
+}
+
+interface PolicyStats {
+  total: number;
+  active: number;
+  inactive: number;
+  applyToAllCount: number;
 }
 
 const staticOptions = [
@@ -93,6 +100,13 @@ const Policy = () => {
   const [editApplyToError, setEditApplyToError] = useState<string | null>(null);
   const [editDescriptionError, setEditDescriptionError] = useState<string | null>(null);
 
+  const [stats, setStats] = useState<PolicyStats>({
+    total: 0,
+    active: 0,
+    inactive: 0,
+    applyToAllCount: 0,
+  });
+
   const socket = useSocket() as Socket | null;
 
   // Modal container helper (for DatePicker positioning)
@@ -118,6 +132,9 @@ const Policy = () => {
 
     setPolicyLoading(true);
     socket.emit("hr/policy/get");
+    
+    // Fetch policy stats
+    socket.emit("hr/policy/stats");
 
     setDepartmentLoading(true);
     socket.emit("hr/departments/get");
@@ -226,12 +243,24 @@ const Policy = () => {
       }
     }
 
+    const handlePolicyStatsResponse = (response: any) => {
+      if (!isMounted) return;
+
+      if (response.done) {
+        setStats(response.data);
+        console.log("Policy stats loaded:", response.data);
+      } else {
+        console.error("Failed to fetch policy stats:", response.error);
+      }
+    }
+
     socket.on("hr/policy/add-response", handleAddPolicyResponse);
     socket.on("hr/policy/get-response", handleGetPolicyResponse);
     socket.on("hr/policy/update-response", handleUpdatePolicyResponse);
     socket.on("hr/policy/delete-response", handleDeletePolicyResponse);
     socket.on("hr/departments/get-response", handleDepartmentsResponse);
     socket.on("hrm/designations/get-response", handleDesignationsResponse);
+    socket.on("hr/policy/stats-response", handlePolicyStatsResponse);
 
     return () => {
       isMounted = false;
@@ -242,9 +271,28 @@ const Policy = () => {
       socket.off("hr/policy/delete-response", handleDeletePolicyResponse);
       socket.off("hr/departments/get-response", handleDepartmentsResponse);
       socket.off("hrm/designations/get-response", handleDesignationsResponse);
+      socket.off("hr/policy/stats-response", handlePolicyStatsResponse);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [socket]);
+
+  // Calculate stats from current data if API doesn't provide them
+  const calculateStats = useCallback(() => {
+    if (policies.length > 0) {
+      const calculatedStats: PolicyStats = {
+        total: policies.length,
+        active: policies.length, // Since Policy interface doesn't have status, assume all are active
+        inactive: 0, // Since Policy interface doesn't have status, assume none are inactive
+        applyToAllCount: policies.filter(p => p.applyToAll === true).length,
+      };
+      setStats(calculatedStats);
+    }
+  }, [policies]);
+
+  // Calculate stats when policies data changes
+  useEffect(() => {
+    calculateStats();
+  }, [policies, calculateStats]);
 
   // constants
   if (error) console.error("Page error:", error);
@@ -1058,6 +1106,80 @@ const Policy = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
+          
+          {/* Policy Stats Cards */}
+          <div className="row">
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-primary-light rounded-circle p-2">
+                      <i className="ti ti-file-text text-primary fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.total}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Total Policies</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-success-light rounded-circle p-2">
+                      <i className="ti ti-circle-check text-success fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.active}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Active</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-danger-light rounded-circle p-2">
+                      <i className="ti ti-circle-x text-danger fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.inactive}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Inactive</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-info-light rounded-circle p-2">
+                      <i className="ti ti-users text-info fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.applyToAllCount}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Apply To All</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* /Policy Stats Cards */}
+          
           {/* Policy list */}
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">

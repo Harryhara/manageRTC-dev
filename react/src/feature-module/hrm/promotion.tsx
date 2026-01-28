@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { Link } from "react-router-dom";
 import Table from "../../core/common/dataTable/index";
 import { all_routes } from "../router/all_routes";
@@ -73,6 +73,13 @@ interface Promotion {
   notes?: string;
 }
 
+interface PromotionStats {
+  total: number;
+  pending: number;
+  approved: number;
+  effectiveThisMonth: number;
+}
+
 const Promotion = () => {
   const socket = useSocket() as Socket | null;
   const { cleanupModals } = useModalCleanup();
@@ -83,6 +90,12 @@ const Promotion = () => {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [designations, setDesignations] = useState<Designation[]>([]);
   const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<PromotionStats>({
+    total: 0,
+    pending: 0,
+    approved: 0,
+    effectiveThisMonth: 0,
+  });
 
   // Form state for Add Promotion
   const [newPromotion, setNewPromotion] = useState({
@@ -199,6 +212,27 @@ const Promotion = () => {
     }
   };
 
+  // Calculate stats from current promotion data
+  const calculateStats = useCallback(() => {
+    if (promotions.length > 0) {
+      const currentDate = new Date();
+      const currentMonth = currentDate.getMonth();
+      const currentYear = currentDate.getFullYear();
+
+      const calculatedStats: PromotionStats = {
+        total: promotions.length,
+        pending: 0, // Since Promotion interface doesn't have status, assume none pending
+        approved: promotions.length, // Since Promotion interface doesn't have status, assume all approved
+        effectiveThisMonth: promotions.filter(p => {
+          const promDate = new Date(p.promotionDate);
+          return promDate.getMonth() === currentMonth && promDate.getFullYear() === currentYear;
+        }).length,
+      };
+      setStats(calculatedStats);
+      console.log("[Promotion] Calculated stats:", calculatedStats);
+    }
+  }, [promotions]);
+
   // Fetch initial data
   useEffect(() => {
     if (!socket) {
@@ -221,6 +255,10 @@ const Promotion = () => {
     // Fetch designations for dropdown
     socket.emit("promotion:getDesignations");
     console.log("[Promotion] Emitted promotion:getDesignations");
+
+    // Fetch promotion stats
+    socket.emit("promotion:getStats");
+    console.log("[Promotion] Emitted promotion:getStats");
 
     // Setup socket listeners
     const handleGetAllResponse = (response: any) => {
@@ -326,11 +364,21 @@ const Promotion = () => {
       toast.success("Promotion deleted successfully");
     };
 
+    const handleGetStatsResponse = (response: any) => {
+      console.log("[Promotion] Received stats response:", response);
+      if (response.done && response.data) {
+        setStats(response.data);
+      } else {
+        console.error("[Promotion] Error fetching stats:", response.error);
+      }
+    };
+
     socket.on("promotion:getAll:response", handleGetAllResponse);
     socket.on("promotion:getDepartments:response", handleGetDepartmentsResponse);
     socket.on("promotion:getEmployeesByDepartment:response", handleGetEmployeesByDepartmentResponse);
     socket.on("promotion:getDesignations:response", handleGetDesignationsResponse);
     socket.on("promotion:getDesignationsByDepartment:response", handleGetDesignationsByDepartmentResponse);
+    socket.on("promotion:getStats:response", handleGetStatsResponse);
     socket.on("promotion:created", handlePromotionCreated);
     socket.on("promotion:updated", handlePromotionUpdated);
     socket.on("promotion:deleted", handlePromotionDeleted);
@@ -342,12 +390,18 @@ const Promotion = () => {
       socket.off("promotion:getEmployeesByDepartment:response", handleGetEmployeesByDepartmentResponse);
       socket.off("promotion:getDesignations:response", handleGetDesignationsResponse);
       socket.off("promotion:getDesignationsByDepartment:response", handleGetDesignationsByDepartmentResponse);
+      socket.off("promotion:getStats:response", handleGetStatsResponse);
       socket.off("promotion:created", handlePromotionCreated);
       socket.off("promotion:updated", handlePromotionUpdated);
       socket.off("promotion:deleted", handlePromotionDeleted);
       cleanupModals();
     };
-  }, [socket, cleanupModals]);
+  }, [socket, cleanupModals, promotions]);
+
+  // Calculate stats when promotion data changes
+  useEffect(() => {
+    calculateStats();
+  }, [promotions, calculateStats]);
 
   // Handle modal open events to reset errors
   useEffect(() => {
@@ -1138,6 +1192,80 @@ const Promotion = () => {
             </div>
           </div>
           {/* /Breadcrumb */}
+          
+          {/* Promotion Stats Cards */}
+          <div className="row">
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-primary-light rounded-circle p-2">
+                      <i className="ti ti-trending-up text-primary fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.total}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Total Promotions</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-warning-light rounded-circle p-2">
+                      <i className="ti ti-clock text-warning fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.pending}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Pending</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-success-light rounded-circle p-2">
+                      <i className="ti ti-check text-success fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.approved}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Approved</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="col-xl-3 col-sm-6 col-12 d-flex">
+              <div className="card bg-comman w-100">
+                <div className="card-body">
+                  <div className="d-flex align-items-center justify-content-between">
+                    <div className="bg-info-light rounded-circle p-2">
+                      <i className="ti ti-calendar text-info fs-20" />
+                    </div>
+                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                      {stats.effectiveThisMonth}
+                    </h5>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mt-3">
+                    <span className="fs-14 fw-medium text-gray">Effective This Month</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          {/* /Promotion Stats Cards */}
+          
           {/* Promotion List */}
           <div className="row">
             <div className="col-sm-12">
