@@ -1,0 +1,118 @@
+/**
+ * Task API Routes
+ * REST API endpoints for Task management
+ */
+
+import express from 'express';
+import {
+  getTasks,
+  getTaskById,
+  createTask,
+  updateTask,
+  deleteTask,
+  getMyTasks,
+  getTasksByProject,
+  updateTaskStatus,
+  getTaskStats
+} from '../../controllers/rest/task.controller.js';
+import {
+  authenticate,
+  requireRole,
+  requireCompany,
+  attachRequestId
+} from '../../middleware/auth.js';
+import {
+  validateBody,
+  validateQuery,
+  taskSchemas
+} from '../../middleware/validate.js';
+
+const router = express.Router();
+
+// Apply request ID middleware to all routes
+router.use(attachRequestId);
+
+/**
+ * Public Routes (Authenticated users can access)
+ */
+
+// Get current user's tasks
+router.get(
+  '/my',
+  authenticate,
+  getMyTasks
+);
+
+// Get tasks by project
+router.get(
+  '/project/:projectId',
+  authenticate,
+  getTasksByProject
+);
+
+// Get task statistics
+router.get(
+  '/stats',
+  authenticate,
+  requireRole('admin', 'hr', 'superadmin'),
+  getTaskStats
+);
+
+/**
+ * Admin/HR Routes (Restricted access)
+ */
+
+// List all tasks with pagination and filtering
+router.get(
+  '/',
+  authenticate,
+  validateQuery(taskSchemas.list),
+  getTasks
+);
+
+// Create new task
+router.post(
+  '/',
+  authenticate,
+  requireRole('admin', 'hr', 'superadmin'),
+  validateBody(taskSchemas.create),
+  createTask
+);
+
+/**
+ * Individual Task Routes
+ */
+
+// Get single task by ID
+router.get(
+  '/:id',
+  authenticate,
+  getTaskById
+);
+
+// Update task
+router.put(
+  '/:id',
+  authenticate,
+  requireRole('admin', 'hr', 'superadmin'),
+  validateBody(taskSchemas.update),
+  updateTask
+);
+
+// Delete task (soft delete)
+router.delete(
+  '/:id',
+  authenticate,
+  requireRole('admin', 'superadmin'),
+  deleteTask
+);
+
+// Update task status
+router.patch(
+  '/:id/status',
+  authenticate,
+  requireRole('admin', 'hr', 'superadmin'),
+  updateTaskStatus
+);
+
+export default router;

@@ -283,4 +283,7 @@ export const socketHandler = (httpServer) => {
       console.log(`Client disconnected: ${socket.id}`);
     });
   });
+
+  // Return io instance so it can be attached to Express app for REST broadcasters
+  return io;
 };

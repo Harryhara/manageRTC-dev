@@ -12,7 +12,7 @@ let schedulerRunning = false;
 /**
  * Start the promotion scheduler
  */
-export function startPromotionScheduler() {
+export async function startPromotionScheduler() {
   if (schedulerRunning) {
     console.log('[PromotionScheduler] Scheduler already running');
     return;
@@ -31,7 +31,7 @@ export function startPromotionScheduler() {
 
   // Also run immediately on startup to catch any missed promotions
   console.log('[PromotionScheduler] Running initial check on startup...');
-  processAllCompanyPromotions();
+  await processAllCompanyPromotions();
 
   return schedule;
 }
@@ -54,11 +54,11 @@ async function processAllCompanyPromotions() {
   try {
     // Get list of all company IDs from the system
     // Note: You'll need to adjust this based on how you track companies
-    const { db } = await getTenantCollections('system'); // or your admin db
+    const collections = await getTenantCollections('system'); // or your admin db
     
     // Get all unique company IDs from a companies collection or similar
     // For now, we'll need to get this from your existing company tracking mechanism
-    const companies = await db.collection('companies').find({ isActive: true }).toArray();
+    const companies = await collections.companies.find({ isActive: true }).toArray();
     
     console.log(`[PromotionScheduler] Found ${companies.length} active companies`);
     

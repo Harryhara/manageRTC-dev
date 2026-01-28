@@ -1,0 +1,735 @@
+/**
+ * Validation Middleware for REST APIs
+ * Validates request data using Joi schemas
+ */
+
+import Joi from 'joi';
+
+/**
+ * validate - Factory function to create validation middleware
+ *
+ * @param {Object} schema - Joi validation schema
+ * @param {string} property - Request property to validate ('body', 'query', 'params')
+ * @returns {Function} Express middleware function
+ */
+export const validate = (schema, property = 'body') => {
+  return (req, res, next) => {
+    const { error, value } = schema.validate(req[property], {
+      abortEarly: false, // Return all errors, not just the first
+      stripUnknown: true, // Remove unknown properties
+      convert: true // Attempt to convert types
+    });
+
+    if (error) {
+      const validationErrors = error.details.map(detail => ({
+        field: detail.path.join('.'),
+        message: detail.message,
+        type: detail.type
+      }));
+
+      console.warn('[Validation Failed]', {
+        requestId: req.id,
+        property,
+        errors: validationErrors
+      });
+
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Request validation failed',
+          details: validationErrors,
+          requestId: req.id || 'no-id'
+        }
+      });
+    }
+
+    // Replace request property with sanitized value
+    req[property] = value;
+
+    next();
+  };
+};
+
+/**
+ * validateBody - Shortcut to validate request body
+ */
+export const validateBody = (schema) => validate(schema, 'body');
+
+/**
+ * validateQuery - Shortcut to validate query parameters
+ */
+export const validateQuery = (schema) => validate(schema, 'query');
+
+/**
+ * validateParams - Shortcut to validate URL parameters
+ */
+export const validateParams = (schema) => validate(schema, 'params');
+
+/**
+ * Common validation schemas
+ */
+export const commonSchemas = {
+  // MongoDB ObjectId validation
+  objectId: Joi.string()
+    .pattern(/^[0-9a-fA-F]{24}$/, 'MongoDB ObjectId')
+    .message('Invalid {{label}} format'),
+
+  // Email validation
+  email: Joi.string()
+    .email({ tlds: { allow: false } })
+    .lowercase()
+    .trim()
+    .required()
+    .messages({
+      'string.email': 'Invalid email format',
+      'any.required': 'Email is required'
+    }),
+
+  // Phone number validation (international format)
+  phone: Joi.string()
+    .pattern(/^[+]?[(]?[0-9]{1,4}[)]?[-\s.]?[(]?[0-9]{1,4}[)]?[-\s.]?[0-9]{1,9}$/)
+    .message('Invalid phone number format'),
+
+  // Date validation (ISO 8601)
+  isoDate: Joi.date()
+    .iso()
+    .messages({
+      'date.format': 'Invalid date format. Use ISO 8601 format (YYYY-MM-DDTHH:mm:ss.sssZ)'
+    }),
+
+  // Pagination
+  pagination: {
+    page: Joi.number().integer().min(1).default(1),
+    limit: Joi.number().integer().min(1).max(100).default(20),
+    search: Joi.string().max(100).allow('').empty('').default('')
+  },
+
+  // Sorting
+  sort: Joi.string()
+    .pattern(/^[a-zA-Z0-9_.]+:(asc|desc)$/)
+    .message('Invalid sort format. Use field:order (e.g., name:asc)')
+};
+
+/**
+ * Employee validation schemas
+ */
+export const employeeSchemas = {
+  // Create employee
+  create: Joi.object({
+    firstName: Joi.string()
+      .min(2)
+      .max(50)
+      .trim()
+      .required()
+      .messages({
+        'string.min': 'First name must be at least 2 characters',
+        'string.max': 'First name cannot exceed 50 characters',
+        'any.required': 'First name is required'
+      }),
+
+    lastName: Joi.string()
+      .min(2)
+      .max(50)
+      .trim()
+      .required()
+      .messages({
+        'string.min': 'Last name must be at least 2 characters',
+        'string.max': 'Last name cannot exceed 50 characters',
+        'any.required': 'Last name is required'
+      }),
+
+    email: commonSchemas.email,
+
+    phone: commonSchemas.phone.optional(),
+
+    dateOfBirth: commonSchemas.isoDate.max('now').optional()
+      .messages({
+        'date.max': 'Date of birth cannot be in the future'
+      }),
+
+    gender: Joi.string()
+      .valid('Male', 'Female', 'Other', 'Prefer not to say')
+      .optional(),
+
+    address: Joi.object({
+      street: Joi.string().max(200).allow('').optional(),
+      city: Joi.string().max(100).allow('').optional(),
+      state: Joi.string().max(100).allow('').optional(),
+      country: Joi.string().max(100).allow('').optional(),
+      postalCode: Joi.string().max(20).allow('').optional()
+    }).optional(),
+
+    departmentId: commonSchemas.objectId.required()
+      .messages({
+        'any.required': 'Department is required'
+      }),
+
+    designationId: commonSchemas.objectId.required()
+      .messages({
+        'any.required': 'Designation is required'
+      }),
+
+    reportingTo: commonSchemas.objectId.optional(),
+
+    employmentType: Joi.string()
+      .valid('Full-time', 'Part-time', 'Contract', 'Intern')
+      .required()
+      .messages({
+        'any.required': 'Employment type is required'
+      }),
+
+    salary: Joi.object({
+      basic: Joi.number().min(0).required(),
+      hra: Joi.number().min(0).optional().default(0),
+      allowances: Joi.number().min(0).optional().default(0),
+      currency: Joi.string().valid('USD', 'EUR', 'GBP', 'INR').default('USD')
+    }).optional()
+  }).custom((value, helpers) => {
+    // Validate employeeCode is unique if provided
+    if (value.employeeCode) {
+      // This would be checked in the controller against database
+      return value;
+    }
+    return value;
+  }),
+
+  // Update employee
+  update: Joi.object({
+    firstName: Joi.string().min(2).max(50).trim().optional(),
+    lastName: Joi.string().min(2).max(50).trim().optional(),
+    email: commonSchemas.email.optional(),
+    phone: commonSchemas.phone.optional(),
+    dateOfBirth: commonSchemas.isoDate.max('now').optional(),
+    gender: Joi.string().valid('Male', 'Female', 'Other', 'Prefer not to say').optional(),
+    address: Joi.object({
+      street: Joi.string().max(200).allow('').optional(),
+      city: Joi.string().max(100).allow('').optional(),
+      state: Joi.string().max(100).allow('').optional(),
+      country: Joi.string().max(100).allow('').optional(),
+      postalCode: Joi.string().max(20).allow('').optional()
+    }).optional(),
+    departmentId: commonSchemas.objectId.optional(),
+    designationId: commonSchemas.objectId.optional(),
+    reportingTo: commonSchemas.objectId.optional(),
+    employmentType: Joi.string().valid('Full-time', 'Part-time', 'Contract', 'Intern').optional(),
+    status: Joi.string().valid('Active', 'Probation', 'Resigned', 'Terminated', 'On Leave').optional(),
+    salary: Joi.object({
+      basic: Joi.number().min(0).optional(),
+      hra: Joi.number().min(0).optional(),
+      allowances: Joi.number().min(0).optional(),
+      currency: Joi.string().valid('USD', 'EUR', 'GBP', 'INR').optional()
+    }).optional()
+  }).min(1)
+    .message('At least one field must be provided for update'),
+
+  // List employees (query params)
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    department: commonSchemas.objectId.optional(),
+    designation: commonSchemas.objectId.optional(),
+    status: Joi.string().valid('Active', 'Probation', 'Resigned', 'Terminated', 'On Leave').optional(),
+    sortBy: Joi.string().valid('firstName', 'lastName', 'email', 'employeeCode', 'joiningDate', 'createdAt').default('createdAt'),
+    order: Joi.string().valid('asc', 'desc').default('desc')
+  })
+};
+
+/**
+ * Project validation schemas
+ */
+export const projectSchemas = {
+  create: Joi.object({
+    name: Joi.string()
+      .min(3)
+      .max(100)
+      .trim()
+      .required()
+      .messages({
+        'string.min': 'Project name must be at least 3 characters',
+        'string.max': 'Project name cannot exceed 100 characters',
+        'any.required': 'Project name is required'
+      }),
+
+    description: Joi.string().max(500).allow('').optional(),
+
+    clientId: commonSchemas.objectId.required()
+      .messages({
+        'any.required': 'Client is required'
+      }),
+
+    startDate: commonSchemas.isoDate.required()
+      .messages({
+        'any.required': 'Start date is required'
+      }),
+
+    dueDate: commonSchemas.isoDate.required()
+      .messages({
+        'any.required': 'Due date is required'
+      }),
+
+    priority: Joi.string()
+      .valid('High', 'Medium', 'Low')
+      .default('Medium'),
+
+    teamLeader: Joi.array()
+      .items(commonSchemas.objectId)
+      .min(1)
+      .required()
+      .messages({
+        'array.min': 'At least one team leader is required',
+        'any.required': 'Team leader is required'
+      }),
+
+    teamMembers: Joi.array()
+      .items(commonSchemas.objectId)
+      .min(1)
+      .optional()
+      .messages({
+        'array.min': 'At least one team member is required'
+      }),
+
+    projectManager: Joi.array()
+      .items(commonSchemas.objectId)
+      .optional(),
+
+    projectValue: Joi.number().min(0).optional()
+  }).custom((value, helpers) => {
+    // Validate startDate is before dueDate
+    if (new Date(value.startDate) >= new Date(value.dueDate)) {
+      return helpers.error('any.invalid', {
+        message: 'Start date must be before due date'
+      });
+    }
+    return value;
+  }),
+
+  update: Joi.object({
+    name: Joi.string().min(3).max(100).trim().optional(),
+    description: Joi.string().max(500).allow('').optional(),
+    clientId: commonSchemas.objectId.optional(),
+    startDate: commonSchemas.isoDate.optional(),
+    dueDate: commonSchemas.isoDate.optional(),
+    priority: Joi.string().valid('High', 'Medium', 'Low').optional(),
+    status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+    teamLeader: commonSchemas.objectId.optional(),
+    teamMembers: Joi.array().items(commonSchemas.objectId).min(1).optional(),
+    projectValue: Joi.number().min(0).optional(),
+    progress: Joi.number().min(0).max(100).optional()
+  }).min(1),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    status: Joi.string().valid('Active', 'Completed', 'On Hold', 'Cancelled').optional(),
+    priority: Joi.string().valid('High', 'Medium', 'Low').optional(),
+    client: commonSchemas.objectId.optional(),
+    sortBy: Joi.string().valid('name', 'startDate', 'dueDate', 'priority', 'createdAt').default('createdAt'),
+    order: Joi.string().valid('asc', 'desc').default('desc')
+  })
+};
+
+/**
+ * Task validation schemas
+ */
+export const taskSchemas = {
+  create: Joi.object({
+    title: Joi.string()
+      .min(3)
+      .max(200)
+      .trim()
+      .required()
+      .messages({
+        'string.min': 'Task title must be at least 3 characters',
+        'string.max': 'Task title cannot exceed 200 characters',
+        'any.required': 'Task title is required'
+      }),
+
+    description: Joi.string().max(1000).allow('').optional(),
+
+    projectId: commonSchemas.objectId.required()
+      .messages({
+        'any.required': 'Project is required'
+      }),
+
+    assignedTo: Joi.array()
+      .items(commonSchemas.objectId)
+      .min(1)
+      .required()
+      .messages({
+        'any.required': 'At least one assignee is required',
+        'array.min': 'At least one assignee is required'
+      }),
+
+    status: Joi.string()
+      .valid('Pending', 'Inprogress', 'Completed', 'Onhold')
+      .default('Pending'),
+
+    priority: Joi.string()
+      .valid('High', 'Medium', 'Low')
+      .default('Medium'),
+
+    startDate: commonSchemas.isoDate.optional(),
+    dueDate: commonSchemas.isoDate.optional(),
+    estimatedHours: Joi.number().min(0).optional(),
+    tags: Joi.array().items(Joi.string().max(50)).optional()
+  }),
+
+  update: Joi.object({
+    title: Joi.string().min(3).max(200).trim().optional(),
+    description: Joi.string().max(1000).allow('').optional(),
+    assignedTo: Joi.array().items(commonSchemas.objectId).min(1).optional(),
+    status: Joi.string().valid('To Do', 'In Progress', 'Review', 'Completed').optional(),
+    priority: Joi.string().valid('High', 'Medium', 'Low').optional(),
+    startDate: commonSchemas.isoDate.optional(),
+    dueDate: commonSchemas.isoDate.optional(),
+    estimatedHours: Joi.number().min(0).optional(),
+    actualHours: Joi.number().min(0).optional(),
+    progress: Joi.number().min(0).max(100).optional(),
+    tags: Joi.array().items(Joi.string().max(50)).optional()
+  }).min(1),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    project: commonSchemas.objectId.optional(),
+    assignee: commonSchemas.objectId.optional(),
+    status: Joi.string().valid('To Do', 'In Progress', 'Review', 'Completed').optional(),
+    priority: Joi.string().valid('High', 'Medium', 'Low').optional(),
+    sortBy: Joi.string().valid('title', 'dueDate', 'priority', 'createdAt').default('createdAt'),
+    order: Joi.string().valid('asc', 'desc').default('desc')
+  })
+};
+
+/**
+ * Lead validation schemas
+ */
+export const leadSchemas = {
+  create: Joi.object({
+    name: Joi.string()
+      .min(2)
+      .max(200)
+      .trim()
+      .required()
+      .messages({
+        'string.min': 'Name must be at least 2 characters',
+        'string.max': 'Name cannot exceed 200 characters',
+        'any.required': 'Name is required'
+      }),
+
+    company: Joi.string().max(200).allow('').optional(),
+
+    email: Joi.string().email().allow('').optional(),
+
+    phone: commonSchemas.phone.optional(),
+
+    source: Joi.string()
+      .valid('Website', 'Referral', 'Cold Call', 'Social Media', 'Email Campaign', 'Event', 'Other')
+      .optional(),
+
+    assigneeId: commonSchemas.objectId.optional(),
+
+    estimatedValue: Joi.number().min(0).optional(),
+
+    notes: Joi.string().max(1000).allow('').optional()
+  }),
+
+  update: Joi.object({
+    name: Joi.string().min(2).max(200).trim().optional(),
+    company: Joi.string().max(200).allow('').optional(),
+    email: Joi.string().email().allow('').optional(),
+    phone: commonSchemas.phone.optional(),
+    status: Joi.string().valid('New', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost').optional(),
+    source: Joi.string().valid('Website', 'Referral', 'Cold Call', 'Social Media', 'Email Campaign', 'Event', 'Other').optional(),
+    assigneeId: commonSchemas.objectId.optional(),
+    estimatedValue: Joi.number().min(0).optional(),
+    probability: Joi.number().min(0).max(100).optional(),
+    notes: Joi.string().max(1000).allow('').optional()
+  }).min(1),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    status: Joi.string().valid('New', 'Contacted', 'Qualified', 'Proposal', 'Won', 'Lost').optional(),
+    source: Joi.string().valid('Website', 'Referral', 'Cold Call', 'Social Media', 'Email Campaign', 'Event', 'Other').optional(),
+    assignee: commonSchemas.objectId.optional(),
+    sortBy: Joi.string().valid('name', 'createdAt', 'estimatedValue').default('createdAt'),
+    order: Joi.string().valid('asc', 'desc').default('desc')
+  })
+};
+
+/**
+ * Client validation schemas
+ */
+export const clientSchemas = {
+  create: Joi.object({
+    name: Joi.string()
+      .min(2)
+      .max(200)
+      .trim()
+      .required()
+      .messages({
+        'string.min': 'Client name must be at least 2 characters',
+        'string.max': 'Client name cannot exceed 200 characters',
+        'any.required': 'Client name is required'
+      }),
+
+    displayName: Joi.string().max(200).allow('').optional(),
+
+    industry: Joi.string().max(100).allow('').optional(),
+
+    clientType: Joi.string()
+      .valid('Enterprise', 'SME', 'Startup', 'Individual', 'Government', 'Other')
+      .optional(),
+
+    email: Joi.string().email().allow('').optional(),
+
+    phone: commonSchemas.phone.optional(),
+
+    website: Joi.string().uri().allow('').optional(),
+
+    address: Joi.object({
+      street: Joi.string().max(200).allow('').optional(),
+      city: Joi.string().max(100).allow('').optional(),
+      state: Joi.string().max(100).allow('').optional(),
+      country: Joi.string().max(100).allow('').optional(),
+      postalCode: Joi.string().max(20).allow('').optional()
+    }).optional(),
+
+    status: Joi.string()
+      .valid('Active', 'Inactive', 'Prospect', 'Churned')
+      .optional(),
+
+    source: Joi.string()
+      .valid('Website', 'Referral', 'Cold Call', 'Social Media', 'Email Campaign', 'Event', 'Other', 'Unknown')
+      .optional(),
+
+    accountManager: commonSchemas.objectId.optional(),
+
+    teamMembers: Joi.array().items(commonSchemas.objectId).optional(),
+
+    annualRevenue: Joi.number().min(0).optional(),
+
+    employeeCount: Joi.number().min(0).optional(),
+
+    tier: Joi.string()
+      .valid('Enterprise', 'Mid-Market', 'Small-Business', 'Startup')
+      .optional(),
+
+    tags: Joi.array().items(Joi.string().max(50)).optional(),
+
+    notes: Joi.string().max(5000).allow('').optional(),
+
+    socialMedia: Joi.object({
+      linkedin: Joi.string().uri().allow('').optional(),
+      twitter: Joi.string().uri().allow('').optional(),
+      facebook: Joi.string().uri().allow('').optional()
+    }).optional(),
+
+    contacts: Joi.array().items(
+      Joi.object({
+        name: Joi.string().min(2).max(200).required(),
+        designation: Joi.string().max(100).allow('').optional(),
+        email: Joi.string().email().allow('').optional(),
+        phone: commonSchemas.phone.optional(),
+        isPrimary: Joi.boolean().optional()
+      })
+    ).optional()
+  }),
+
+  update: Joi.object({
+    name: Joi.string().min(2).max(200).trim().optional(),
+    displayName: Joi.string().max(200).allow('').optional(),
+    industry: Joi.string().max(100).allow('').optional(),
+    clientType: Joi.string()
+      .valid('Enterprise', 'SME', 'Startup', 'Individual', 'Government', 'Other')
+      .optional(),
+    email: Joi.string().email().allow('').optional(),
+    phone: commonSchemas.phone.optional(),
+    website: Joi.string().uri().allow('').optional(),
+    address: Joi.object({
+      street: Joi.string().max(200).allow('').optional(),
+      city: Joi.string().max(100).allow('').optional(),
+      state: Joi.string().max(100).allow('').optional(),
+      country: Joi.string().max(100).allow('').optional(),
+      postalCode: Joi.string().max(20).allow('').optional()
+    }).optional(),
+    status: Joi.string()
+      .valid('Active', 'Inactive', 'Prospect', 'Churned')
+      .optional(),
+    source: Joi.string()
+      .valid('Website', 'Referral', 'Cold Call', 'Social Media', 'Email Campaign', 'Event', 'Other', 'Unknown')
+      .optional(),
+    accountManager: commonSchemas.objectId.optional(),
+    teamMembers: Joi.array().items(commonSchemas.objectId).optional(),
+    annualRevenue: Joi.number().min(0).optional(),
+    employeeCount: Joi.number().min(0).optional(),
+    tier: Joi.string()
+      .valid('Enterprise', 'Mid-Market', 'Small-Business', 'Startup')
+      .optional(),
+    tags: Joi.array().items(Joi.string().max(50)).optional(),
+    notes: Joi.string().max(5000).allow('').optional(),
+    socialMedia: Joi.object({
+      linkedin: Joi.string().uri().allow('').optional(),
+      twitter: Joi.string().uri().allow('').optional(),
+      facebook: Joi.string().uri().allow('').optional()
+    }).optional(),
+    contacts: Joi.array().items(
+      Joi.object({
+        name: Joi.string().min(2).max(200).required(),
+        designation: Joi.string().max(100).allow('').optional(),
+        email: Joi.string().email().allow('').optional(),
+        phone: commonSchemas.phone.optional(),
+        isPrimary: Joi.boolean().optional()
+      })
+    ).optional()
+  }).min(1),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    status: Joi.string().valid('Active', 'Inactive', 'Prospect', 'Churned').optional(),
+    tier: Joi.string().valid('Enterprise', 'Mid-Market', 'Small-Business', 'Startup').optional(),
+    source: Joi.string().valid('Website', 'Referral', 'Cold Call', 'Social Media', 'Email Campaign', 'Event', 'Other', 'Unknown').optional(),
+    clientType: Joi.string().valid('Enterprise', 'SME', 'Startup', 'Individual', 'Government', 'Other').optional(),
+    accountManager: commonSchemas.objectId.optional(),
+    sortBy: Joi.string().valid('name', 'createdAt', 'totalValue', 'annualRevenue').default('createdAt'),
+    order: Joi.string().valid('asc', 'desc').default('desc')
+  })
+};
+
+/**
+ * Attendance validation schemas
+ */
+export const attendanceSchemas = {
+  clockIn: Joi.object({
+    location: Joi.object({
+      latitude: Joi.number().min(-90).max(90).required(),
+      longitude: Joi.number().min(-180).max(180).required(),
+      address: Joi.string().max(200).allow('').optional()
+    }).optional()
+  }),
+
+  clockOut: Joi.object({
+    location: Joi.object({
+      latitude: Joi.number().min(-90).max(90).required(),
+      longitude: Joi.number().min(-180).max(180).required(),
+      address: Joi.string().max(200).allow('').optional()
+    }).optional()
+  }),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    dateFrom: commonSchemas.isoDate.optional(),
+    dateTo: commonSchemas.isoDate.optional(),
+    employeeId: commonSchemas.objectId.optional(),
+    status: Joi.string().valid('Present', 'Absent', 'Half Day', 'Late').optional()
+  }).custom((value, helpers) => {
+    // Validate date range
+    if (value.dateFrom && value.dateTo) {
+      if (new Date(value.dateFrom) > new Date(value.dateTo)) {
+        return helpers.error('any.invalid', {
+          message: 'dateFrom must be before dateTo'
+        });
+      }
+    }
+    return value;
+  })
+};
+
+/**
+ * Leave validation schemas
+ */
+export const leaveSchemas = {
+  create: Joi.object({
+    leaveTypeId: commonSchemas.objectId.required()
+      .messages({
+        'any.required': 'Leave type is required'
+      }),
+
+    fromDate: commonSchemas.isoDate.required()
+      .messages({
+        'any.required': 'From date is required'
+      }),
+
+    toDate: commonSchemas.isoDate.required()
+      .messages({
+        'any.required': 'To date is required'
+      }),
+
+    numberOfDays: Joi.number().integer().min(0.5).max(365).required()
+      .messages({
+        'any.required': 'Number of days is required'
+      }),
+
+    reason: Joi.string().max(500).required()
+      .messages({
+        'any.required': 'Reason is required'
+      }),
+
+    isHalfDay: Joi.boolean().default(false)
+  }).custom((value, helpers) => {
+    // Validate date range
+    if (new Date(value.fromDate) > new Date(value.toDate)) {
+      return helpers.error('any.invalid', {
+        message: 'From date must be before to date'
+      });
+    }
+    return value;
+  }),
+
+  approve: Joi.object({
+    comments: Joi.string().max(500).allow('').optional()
+  }),
+
+  list: Joi.object({
+    ...commonSchemas.pagination,
+    status: Joi.string().valid('Pending', 'Approved', 'Rejected', 'Cancelled').optional(),
+    dateFrom: commonSchemas.isoDate.optional(),
+    dateTo: commonSchemas.isoDate.optional()
+  })
+};
+
+/**
+ * NoSQL injection protection
+ * Sanitizes MongoDB operators from query objects
+ */
+export const sanitizeMongoQuery = (query) => {
+  const dangerousKeys = [
+    '$where', '$ne', '$in', '$nin', '$gt', '$gte', '$lt', '$lte',
+    '$exists', '$type', '$mod', '$regex', '$or', '$and', '$not', '$nor'
+  ];
+
+  const sanitize = (obj) => {
+    if (!obj || typeof obj !== 'object') {
+      return obj;
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(sanitize);
+    }
+
+    const sanitized = {};
+    for (const key in obj) {
+      if (dangerousKeys.some(dangerous => key.startsWith(dangerous))) {
+        console.warn('[Security] Blocked MongoDB operator in query:', key);
+        continue;
+      }
+      sanitized[key] = sanitize(obj[key]);
+    }
+    return sanitized;
+  };
+
+  return sanitize(query);
+};
+
+export default {
+  validate,
+  validateBody,
+  validateQuery,
+  validateParams,
+  commonSchemas,
+  employeeSchemas,
+  projectSchemas,
+  taskSchemas,
+  leadSchemas,
+  clientSchemas,
+  attendanceSchemas,
+  leaveSchemas,
+  sanitizeMongoQuery
+};

@@ -23,6 +23,15 @@ import { startPromotionScheduler } from "./jobs/promotionScheduler.js";
 import performanceIndicatorRoutes from "./routes/performance/performanceIndicator.routes.js";
 import performanceAppraisalRoutes from "./routes/performance/performanceAppraisal.routes.js";
 import performanceReviewRoutes from "./routes/performance/performanceReview.routes.js";
+
+// REST API Routes (Socket.IO to REST Migration)
+import employeeRoutes from "./routes/api/employees.js";
+import projectRoutes from "./routes/api/projects.js";
+import taskRoutes from "./routes/api/tasks.js";
+import leadRoutes from "./routes/api/leads.js";
+import clientRoutes from "./routes/api/clients.js";
+import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
+
 config();
 
 const __filename = fileURLToPath(import.meta.url);
@@ -117,6 +126,13 @@ const initializeServer = async () => {
     app.use("/api/performance/appraisals", performanceAppraisalRoutes);
     app.use("/api/performance/reviews", performanceReviewRoutes);
 
+    // REST API Routes (Socket.IO to REST Migration)
+    app.use("/api/employees", employeeRoutes);
+    app.use("/api/projects", projectRoutes);
+    app.use("/api/tasks", taskRoutes);
+    app.use("/api/leads", leadRoutes);
+    app.use("/api/clients", clientRoutes);
+
     app.get("/", (req, res) => {
       res.send("API is running");
     });
@@ -210,11 +226,16 @@ const initializeServer = async () => {
       }
     });
 
-    // Socket setup
-    socketHandler(httpServer);
+    // Error handling (must be after all routes)
+    app.use(notFoundHandler);
+    app.use(errorHandler);
+
+    // Socket setup - attach io to app for REST broadcasters
+    const io = socketHandler(httpServer);
+    app.set('io', io);
 
     // Start promotion scheduler for automatic promotion application
-    startPromotionScheduler();
+    await startPromotionScheduler();
     console.log('✅ Promotion scheduler initialized');
 
     // Server listen
