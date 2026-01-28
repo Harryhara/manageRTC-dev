@@ -176,11 +176,156 @@ export const generateClientId = async (companyId) => {
   return `CLI-${year}-${paddedSequence}`;
 };
 
+/**
+ * generateAttendanceId - Generate unique attendance ID
+ * Format: ATT-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @returns {Promise<string>} Generated attendance ID
+ */
+export const generateAttendanceId = async (companyId) => {
+  const Attendance = mongoose.model('Attendance');
+  const year = new Date().getFullYear();
+
+  const lastAttendance = await Attendance.findOne({
+    companyId,
+    attendanceId: new RegExp(`^ATT-${year}-`)
+  }).sort({ attendanceId: -1 });
+
+  let sequence = 1;
+
+  if (lastAttendance && lastAttendance.attendanceId) {
+    const lastSequence = parseInt(lastAttendance.attendanceId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `ATT-${year}-${paddedSequence}`;
+};
+
+/**
+ * generateAssetId - Generate unique asset ID
+ * Format: AST-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @returns {Promise<string>} Generated asset ID
+ */
+export const generateAssetId = async (companyId) => {
+  const Asset = mongoose.model('Asset');
+  const year = new Date().getFullYear();
+
+  const lastAsset = await Asset.findOne({
+    companyId,
+    assetId: new RegExp(`^AST-${year}-`)
+  }).sort({ assetId: -1 });
+
+  let sequence = 1;
+
+  if (lastAsset && lastAsset.assetId) {
+    const lastSequence = parseInt(lastAsset.assetId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `AST-${year}-${paddedSequence}`;
+};
+
+/**
+ * generateTrainingId - Generate unique training ID
+ * Format: TRN-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @returns {Promise<string>} Generated training ID
+ */
+export const generateTrainingId = async (companyId) => {
+  const Training = mongoose.model('Training');
+  const year = new Date().getFullYear();
+
+  const lastTraining = await Training.findOne({
+    companyId,
+    trainingId: new RegExp(`^TRN-${year}-`)
+  }).sort({ trainingId: -1 });
+
+  let sequence = 1;
+
+  if (lastTraining && lastTraining.trainingId) {
+    const lastSequence = parseInt(lastTraining.trainingId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `TRN-${year}-${paddedSequence}`;
+};
+
+/**
+ * generateActivityId - Generate unique activity ID
+ * Format: ACT-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @returns {Promise<string>} Generated activity ID
+ */
+export const generateActivityId = async (companyId) => {
+  const Activity = mongoose.model('Activity');
+  const year = new Date().getFullYear();
+
+  const lastActivity = await Activity.findOne({
+    companyId,
+    activityId: new RegExp(`^ACT-${year}-`)
+  }).sort({ activityId: -1 });
+
+  let sequence = 1;
+
+  if (lastActivity && lastActivity.activityId) {
+    const lastSequence = parseInt(lastActivity.activityId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `ACT-${year}-${paddedSequence}`;
+};
+
+/**
+ * generatePipelineId - Generate unique pipeline ID
+ * Format: PLN-YYYY-NNNN
+ *
+ * @param {string} companyId - Company ID
+ * @returns {Promise<string>} Generated pipeline ID
+ */
+export const generatePipelineId = async (companyId) => {
+  const Pipeline = mongoose.model('Pipeline');
+  const year = new Date().getFullYear();
+
+  const lastPipeline = await Pipeline.findOne({
+    companyId,
+    pipelineId: new RegExp(`^PLN-${year}-`)
+  }).sort({ pipelineId: -1 });
+
+  let sequence = 1;
+
+  if (lastPipeline && lastPipeline.pipelineId) {
+    const lastSequence = parseInt(lastPipeline.pipelineId.split('-')[2]);
+    sequence = lastSequence + 1;
+  }
+
+  const paddedSequence = String(sequence).padStart(4, '0');
+
+  return `PLN-${year}-${paddedSequence}`;
+};
+
 export default {
   generateEmployeeId,
   generateProjectId,
   generateTaskId,
   generateLeaveId,
   generateLeadId,
-  generateClientId
+  generateClientId,
+  generateAttendanceId,
+  generateAssetId,
+  generateTrainingId,
+  generateActivityId,
+  generatePipelineId
 };

@@ -360,6 +360,668 @@ export const broadcastClientEvents = {
 };
 
 /**
+ * Attendance event broadcasters
+ */
+export const broadcastAttendanceEvents = {
+  /**
+   * Broadcast attendance created event
+   */
+  created: (io, companyId, attendance) => {
+    broadcastToCompany(io, companyId, 'attendance:created', {
+      attendanceId: attendance.attendanceId,
+      _id: attendance._id,
+      employee: attendance.employee,
+      date: attendance.date,
+      status: attendance.status,
+      clockIn: attendance.clockIn,
+      createdBy: attendance.createdBy
+    });
+  },
+
+  /**
+   * Broadcast attendance updated event
+   */
+  updated: (io, companyId, attendance) => {
+    broadcastToCompany(io, companyId, 'attendance:updated', {
+      attendanceId: attendance.attendanceId,
+      _id: attendance._id,
+      employee: attendance.employee,
+      date: attendance.date,
+      status: attendance.status,
+      hoursWorked: attendance.hoursWorked,
+      updatedBy: attendance.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast clock in event
+   */
+  clockIn: (io, companyId, attendance) => {
+    // Broadcast to company for admins/HR
+    broadcastToCompany(io, companyId, 'attendance:clock_in', {
+      attendanceId: attendance.attendanceId,
+      _id: attendance._id,
+      employee: attendance.employee,
+      date: attendance.date,
+      clockInTime: attendance.clockIn.time
+    });
+
+    // Broadcast to specific employee
+    if (attendance.employee) {
+      broadcastToUser(io, attendance.employee.toString(), 'attendance:you_clocked_in', {
+        attendanceId: attendance.attendanceId,
+        _id: attendance._id,
+        clockInTime: attendance.clockIn.time
+      });
+    }
+  },
+
+  /**
+   * Broadcast clock out event
+   */
+  clockOut: (io, companyId, attendance) => {
+    // Broadcast to company for admins/HR
+    broadcastToCompany(io, companyId, 'attendance:clock_out', {
+      attendanceId: attendance.attendanceId,
+      _id: attendance._id,
+      employee: attendance.employee,
+      date: attendance.date,
+      clockOutTime: attendance.clockOut.time,
+      hoursWorked: attendance.hoursWorked
+    });
+
+    // Broadcast to specific employee
+    if (attendance.employee) {
+      broadcastToUser(io, attendance.employee.toString(), 'attendance:you_clocked_out', {
+        attendanceId: attendance.attendanceId,
+        _id: attendance._id,
+        clockOutTime: attendance.clockOut.time,
+        hoursWorked: attendance.hoursWorked
+      });
+    }
+  },
+
+  /**
+   * Broadcast attendance deleted event
+   */
+  deleted: (io, companyId, attendanceId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'attendance:deleted', {
+      attendanceId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast bulk attendance update event
+   */
+  bulkUpdated: (io, companyId, data) => {
+    broadcastToCompany(io, companyId, 'attendance:bulk_updated', {
+      action: data.action,
+      updatedCount: data.updatedCount,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Leave event broadcasters
+ */
+export const broadcastLeaveEvents = {
+  /**
+   * Broadcast leave created event
+   */
+  created: (io, companyId, leave) => {
+    broadcastToCompany(io, companyId, 'leave:created', {
+      leaveId: leave.leaveId,
+      _id: leave._id,
+      employee: leave.employee,
+      leaveType: leave.leaveType,
+      startDate: leave.startDate,
+      endDate: leave.endDate,
+      status: leave.status,
+      createdBy: leave.createdBy
+    });
+  },
+
+  /**
+   * Broadcast leave updated event
+   */
+  updated: (io, companyId, leave) => {
+    broadcastToCompany(io, companyId, 'leave:updated', {
+      leaveId: leave.leaveId,
+      _id: leave._id,
+      employee: leave.employee,
+      leaveType: leave.leaveType,
+      status: leave.status,
+      updatedBy: leave.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast leave approved event
+   */
+  approved: (io, companyId, leave, approvedBy) => {
+    broadcastToCompany(io, companyId, 'leave:approved', {
+      leaveId: leave.leaveId,
+      _id: leave._id,
+      employee: leave.employee,
+      leaveType: leave.leaveType,
+      startDate: leave.startDate,
+      endDate: leave.endDate,
+      approvedBy
+    });
+
+    // Notify the employee
+    if (leave.employee) {
+      broadcastToUser(io, leave.employee.toString(), 'leave:your_leave_approved', {
+        leaveId: leave.leaveId,
+        _id: leave._id,
+        leaveType: leave.leaveType,
+        startDate: leave.startDate,
+        endDate: leave.endDate
+      });
+    }
+  },
+
+  /**
+   * Broadcast leave rejected event
+   */
+  rejected: (io, companyId, leave, rejectedBy, reason) => {
+    broadcastToCompany(io, companyId, 'leave:rejected', {
+      leaveId: leave.leaveId,
+      _id: leave._id,
+      employee: leave.employee,
+      leaveType: leave.leaveType,
+      rejectedBy,
+      reason
+    });
+
+    // Notify the employee
+    if (leave.employee) {
+      broadcastToUser(io, leave.employee.toString(), 'leave:your_leave_rejected', {
+        leaveId: leave.leaveId,
+        _id: leave._id,
+        leaveType: leave.leaveType,
+        reason
+      });
+    }
+  },
+
+  /**
+   * Broadcast leave cancelled event
+   */
+  cancelled: (io, companyId, leave, cancelledBy) => {
+    broadcastToCompany(io, companyId, 'leave:cancelled', {
+      leaveId: leave.leaveId,
+      _id: leave._id,
+      employee: leave.employee,
+      leaveType: leave.leaveType,
+      cancelledBy
+    });
+  },
+
+  /**
+   * Broadcast leave deleted event
+   */
+  deleted: (io, companyId, leaveId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'leave:deleted', {
+      leaveId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast leave balance updated event
+   */
+  balanceUpdated: (io, companyId, employeeId, balances) => {
+    // Notify the employee
+    broadcastToUser(io, employeeId, 'leave:balance_updated', {
+      employeeId,
+      balances,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Asset event broadcasters
+ */
+export const broadcastAssetEvents = {
+  /**
+   * Broadcast asset created event
+   */
+  created: (io, companyId, asset) => {
+    broadcastToCompany(io, companyId, 'asset:created', {
+      assetId: asset.assetId,
+      _id: asset._id,
+      name: asset.name,
+      type: asset.type,
+      category: asset.category,
+      status: asset.status,
+      assignedTo: asset.assignedTo,
+      createdBy: asset.createdBy
+    });
+  },
+
+  /**
+   * Broadcast asset updated event
+   */
+  updated: (io, companyId, asset) => {
+    broadcastToCompany(io, companyId, 'asset:updated', {
+      assetId: asset.assetId,
+      _id: asset._id,
+      name: asset.name,
+      type: asset.type,
+      category: asset.category,
+      status: asset.status,
+      assignedTo: asset.assignedTo,
+      updatedBy: asset.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast asset assigned event
+   */
+  assigned: (io, companyId, asset) => {
+    broadcastToCompany(io, companyId, 'asset:assigned', {
+      assetId: asset.assetId,
+      _id: asset._id,
+      name: asset.name,
+      type: asset.type,
+      assignedTo: asset.assignedTo,
+      assignedDate: asset.assignedDate,
+      assignmentType: asset.assignmentType
+    });
+
+    // Notify the assigned employee
+    if (asset.assignedTo) {
+      broadcastToUser(io, asset.assignedTo.toString(), 'asset:assigned_to_you', {
+        assetId: asset.assetId,
+        _id: asset._id,
+        name: asset.name,
+        type: asset.type,
+        assignedDate: asset.assignedDate
+      });
+    }
+  },
+
+  /**
+   * Broadcast asset maintenance scheduled event
+   */
+  maintenanceScheduled: (io, companyId, asset) => {
+    broadcastToCompany(io, companyId, 'asset:maintenance_scheduled', {
+      assetId: asset.assetId,
+      _id: asset._id,
+      name: asset.name,
+      nextMaintenanceDate: asset.maintenanceSchedule.nextMaintenanceDate,
+      status: asset.status
+    });
+  },
+
+  /**
+   * Broadcast asset deleted event
+   */
+  deleted: (io, companyId, assetId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'asset:deleted', {
+      assetId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Training event broadcasters
+ */
+export const broadcastTrainingEvents = {
+  /**
+   * Broadcast training created event
+   */
+  created: (io, companyId, training) => {
+    broadcastToCompany(io, companyId, 'training:created', {
+      trainingId: training.trainingId,
+      _id: training._id,
+      name: training.name,
+      type: training.type,
+      category: training.category,
+      startDate: training.startDate,
+      endDate: training.endDate,
+      maxParticipants: training.maxParticipants,
+      createdBy: training.createdBy
+    });
+  },
+
+  /**
+   * Broadcast training updated event
+   */
+  updated: (io, companyId, training) => {
+    broadcastToCompany(io, companyId, 'training:updated', {
+      trainingId: training.trainingId,
+      _id: training._id,
+      name: training.name,
+      type: training.type,
+      status: training.status,
+      startDate: training.startDate,
+      endDate: training.endDate,
+      updatedBy: training.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast training enrollment opened event
+   */
+  enrollmentOpened: (io, companyId, training) => {
+    broadcastToCompany(io, companyId, 'training:enrollment_opened', {
+      trainingId: training.trainingId,
+      _id: training._id,
+      name: training.name,
+      type: training.type,
+      startDate: training.startDate,
+      availableSlots: training.availableSlots
+    });
+  },
+
+  /**
+   * Broadcast training deleted event
+   */
+  deleted: (io, companyId, trainingId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'training:deleted', {
+      trainingId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Activity event broadcasters
+ */
+export const broadcastActivityEvents = {
+  /**
+   * Broadcast activity created event
+   */
+  created: (io, companyId, activity) => {
+    broadcastToCompany(io, companyId, 'activity:created', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      activityType: activity.activityType,
+      dueDate: activity.dueDate,
+      status: activity.status,
+      priority: activity.priority,
+      owner: activity.owner,
+      createdBy: activity.createdBy
+    });
+  },
+
+  /**
+   * Broadcast activity updated event
+   */
+  updated: (io, companyId, activity) => {
+    broadcastToCompany(io, companyId, 'activity:updated', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      activityType: activity.activityType,
+      status: activity.status,
+      priority: activity.priority,
+      dueDate: activity.dueDate,
+      updatedBy: activity.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast activity status changed event
+   */
+  statusChanged: (io, companyId, userId, activity) => {
+    broadcastToUser(io, userId, 'activity:status_changed', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      status: activity.status
+    });
+  },
+
+  /**
+   * Broadcast activity assigned to owner
+   */
+  assignedToOwner: (io, userId, activity) => {
+    broadcastToUser(io, userId, 'activity:assigned_to_you', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      activityType: activity.activityType,
+      dueDate: activity.dueDate,
+      priority: activity.priority
+    });
+  },
+
+  /**
+   * Broadcast activity completed event
+   */
+  completed: (io, companyId, activity) => {
+    broadcastToCompany(io, companyId, 'activity:completed', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      activityType: activity.activityType,
+      completedBy: activity.completedBy,
+      completedAt: activity.completedAt
+    });
+  },
+
+  /**
+   * Broadcast activity completed - owner notification
+   */
+  completedOwner: (io, userId, activity) => {
+    broadcastToUser(io, userId, 'activity:your_activity_completed', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      completedAt: activity.completedAt
+    });
+  },
+
+  /**
+   * Broadcast activity postponed event
+   */
+  postponed: (io, companyId, activity) => {
+    broadcastToCompany(io, companyId, 'activity:postponed', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      newDueDate: activity.dueDate
+    });
+  },
+
+  /**
+   * Broadcast activity postponed - owner notification
+   */
+  postponedOwner: (io, userId, activity) => {
+    broadcastToUser(io, userId, 'activity:your_activity_postponed', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      newDueDate: activity.dueDate
+    });
+  },
+
+  /**
+   * Broadcast activity deleted event
+   */
+  deleted: (io, companyId, activityId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'activity:deleted', {
+      activityId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast activity reminder
+   */
+  reminder: (io, userId, activity) => {
+    broadcastToUser(io, userId, 'activity:reminder', {
+      activityId: activity.activityId,
+      _id: activity._id,
+      title: activity.title,
+      activityType: activity.activityType,
+      dueDate: activity.dueDate,
+      reminder: activity.reminder
+    });
+  }
+};
+
+/**
+ * Pipeline event broadcasters
+ */
+export const broadcastPipelineEvents = {
+  /**
+   * Broadcast pipeline created event
+   */
+  created: (io, companyId, pipeline) => {
+    broadcastToCompany(io, companyId, 'pipeline:created', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      pipelineType: pipeline.pipelineType,
+      stage: pipeline.stage,
+      dealValue: pipeline.dealValue,
+      owner: pipeline.owner,
+      createdBy: pipeline.createdBy
+    });
+  },
+
+  /**
+   * Broadcast pipeline updated event
+   */
+  updated: (io, companyId, pipeline) => {
+    broadcastToCompany(io, companyId, 'pipeline:updated', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      stage: pipeline.stage,
+      dealValue: pipeline.dealValue,
+      status: pipeline.status,
+      updatedBy: pipeline.updatedBy
+    });
+  },
+
+  /**
+   * Broadcast pipeline stage changed event
+   */
+  stageChanged: (io, companyId, pipeline) => {
+    broadcastToCompany(io, companyId, 'pipeline:stage_changed', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      stage: pipeline.stage,
+      probability: pipeline.probability
+    });
+  },
+
+  /**
+   * Broadcast pipeline stage changed - owner notification
+   */
+  stageChangedOwner: (io, userId, pipeline) => {
+    broadcastToUser(io, userId, 'pipeline:your_deal_stage_changed', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      stage: pipeline.stage
+    });
+  },
+
+  /**
+   * Broadcast pipeline assigned to owner
+   */
+  assignedToOwner: (io, userId, pipeline) => {
+    broadcastToUser(io, userId, 'pipeline:assigned_to_you', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      dealValue: pipeline.dealValue,
+      expectedCloseDate: pipeline.expectedCloseDate
+    });
+  },
+
+  /**
+   * Broadcast pipeline status changed event
+   */
+  statusChanged: (io, companyId, userId, pipeline) => {
+    broadcastToUser(io, userId, 'pipeline:status_changed', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      status: pipeline.status
+    });
+  },
+
+  /**
+   * Broadcast pipeline won event
+   */
+  won: (io, companyId, pipeline) => {
+    broadcastToCompany(io, companyId, 'pipeline:won', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      dealValue: pipeline.dealValue,
+      actualCloseDate: pipeline.actualCloseDate
+    });
+  },
+
+  /**
+   * Broadcast pipeline won - owner notification
+   */
+  wonOwner: (io, userId, pipeline) => {
+    broadcastToUser(io, userId, 'pipeline:your_deal_won', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      dealValue: pipeline.dealValue
+    });
+  },
+
+  /**
+   * Broadcast pipeline lost event
+   */
+  lost: (io, companyId, pipeline) => {
+    broadcastToCompany(io, companyId, 'pipeline:lost', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      dealValue: pipeline.dealValue,
+      outcomeReason: pipeline.outcomeReason
+    });
+  },
+
+  /**
+   * Broadcast pipeline lost - owner notification
+   */
+  lostOwner: (io, userId, pipeline) => {
+    broadcastToUser(io, userId, 'pipeline:your_deal_lost', {
+      pipelineId: pipeline.pipelineId,
+      _id: pipeline._id,
+      pipelineName: pipeline.pipelineName,
+      outcomeReason: pipeline.outcomeReason
+    });
+  },
+
+  /**
+   * Broadcast pipeline deleted event
+   */
+  deleted: (io, companyId, pipelineId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'pipeline:deleted', {
+      pipelineId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
  * Dashboard event broadcasters
  */
 export const broadcastDashboardEvents = {
@@ -395,6 +1057,12 @@ export default {
   broadcastTaskEvents,
   broadcastLeadEvents,
   broadcastClientEvents,
+  broadcastAttendanceEvents,
+  broadcastLeaveEvents,
+  broadcastAssetEvents,
+  broadcastTrainingEvents,
+  broadcastActivityEvents,
+  broadcastPipelineEvents,
   broadcastDashboardEvents,
   getSocketIO
 };

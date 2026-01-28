@@ -1,0 +1,734 @@
+{
+  "info": {
+    "name": "manageRTC Phase 4 & 5 APIs - Testing & Documentation",
+    "description": "REST API collection for Activities, Pipelines, Holiday Types, and Promotions - Phase 4 of Socket.IO to REST Migration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "companyId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Activities API",
+      "item": [
+        {
+          "name": "GET All Activities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "status", "value": "", "disabled": true },
+                { "key": "type", "value": "", "disabled": true },
+                { "key": "priority", "value": "", "disabled": true },
+                { "key": "owner", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Get all activities with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Activities by Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/type/:type?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", "type", ":type"],
+              "variable": [
+                { "key": "type", "value": "call" }
+              ],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Get activities by type (call, email, meeting, task, follow-up, demo, site-visit, other)"
+          }
+        },
+        {
+          "name": "GET Activity Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", "stats"]
+            },
+            "description": "Get activity statistics"
+          }
+        },
+        {
+          "name": "GET Upcoming Activities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/upcoming",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", "upcoming"]
+            },
+            "description": "Get upcoming activities (within 24 hours)"
+          }
+        },
+        {
+          "name": "GET Overdue Activities",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/overdue",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", "overdue"]
+            },
+            "description": "Get overdue activities"
+          }
+        },
+        {
+          "name": "GET Activity by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Get single activity by ID"
+          }
+        },
+        {
+          "name": "POST Create Activity",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Client Follow-up Call\",\n  \"description\": \"Discuss project requirements\",\n  \"activityType\": \"call\",\n  \"dueDate\": \"2026-02-01T10:00:00.000Z\",\n  \"priority\": \"high\",\n  \"owner\": \"user_id_here\",\n  \"relatedTo\": {\n    \"entityType\": \"lead\",\n    \"entityId\": \"lead_id_here\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/activities",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities"]
+            },
+            "description": "Create new activity"
+          }
+        },
+        {
+          "name": "PUT Update Activity",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"completed\",\n  \"outcome\": \"Discussion successful, client interested\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Update activity"
+          }
+        },
+        {
+          "name": "PUT Mark Activity Complete",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/:id/complete",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", ":id", "complete"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Mark activity as complete"
+          }
+        },
+        {
+          "name": "PUT Postpone Activity",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"newDueDate\": \"2026-02-05T14:00:00.000Z\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/:id/postpone",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", ":id", "postpone"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Postpone activity to new date"
+          }
+        },
+        {
+          "name": "DELETE Activity",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/activities/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "activities", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Delete activity (soft delete)"
+          }
+        }
+      ],
+      "description": "Activity management endpoints (12 endpoints)"
+    },
+    {
+      "name": "Pipelines API",
+      "item": [
+        {
+          "name": "GET All Pipelines",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "search", "value": "", "disabled": true },
+                { "key": "status", "value": "", "disabled": true },
+                { "key": "type", "value": "", "disabled": true },
+                { "key": "stage", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Get all pipelines with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Pipelines by Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/type/:type?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", "type", ":type"],
+              "variable": [
+                { "key": "type", "value": "sales" }
+              ],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Get pipelines by type (sales, recruitment, support, project, custom)"
+          }
+        },
+        {
+          "name": "GET Pipeline Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", "stats"]
+            },
+            "description": "Get pipeline statistics"
+          }
+        },
+        {
+          "name": "GET Overdue Pipelines",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/overdue",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", "overdue"]
+            },
+            "description": "Get overdue pipelines"
+          }
+        },
+        {
+          "name": "GET Pipelines Closing Soon",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/closing-soon",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", "closing-soon"]
+            },
+            "description": "Get pipelines closing soon (within 7 days)"
+          }
+        },
+        {
+          "name": "GET Pipeline by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Get single pipeline by ID"
+          }
+        },
+        {
+          "name": "POST Create Pipeline",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"pipelineName\": \"Enterprise Deal Q1\",\n  \"description\": \"Large enterprise software deal\",\n  \"pipelineType\": \"sales\",\n  \"stage\": \"Qualified\",\n  \"dealValue\": 50000,\n  \"currency\": \"USD\",\n  \"expectedCloseDate\": \"2026-03-31T00:00:00.000Z\",\n  \"probability\": 40,\n  \"owner\": \"user_id_here\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines"]
+            },
+            "description": "Create new pipeline"
+          }
+        },
+        {
+          "name": "PUT Update Pipeline",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stage\": \"Proposal\",\n  \"probability\": 60\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Update pipeline"
+          }
+        },
+        {
+          "name": "PUT Move Pipeline Stage",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"stage\": \"Negotiation\",\n  \"notes\": \"Client interested in our proposal\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/:id/move-stage",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", ":id", "move-stage"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Move pipeline to next stage"
+          }
+        },
+        {
+          "name": "PUT Mark Pipeline Won",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Deal closed successfully\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/:id/won",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", ":id", "won"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Mark pipeline as won"
+          }
+        },
+        {
+          "name": "PUT Mark Pipeline Lost",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Client chose competitor\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/:id/lost",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", ":id", "lost"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Mark pipeline as lost"
+          }
+        },
+        {
+          "name": "DELETE Pipeline",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/pipelines/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "pipelines", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Delete pipeline (soft delete)"
+          }
+        }
+      ],
+      "description": "Pipeline management endpoints (13 endpoints)"
+    },
+    {
+      "name": "Holiday Types API",
+      "item": [
+        {
+          "name": "GET All Holiday Types",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/holiday-types?active=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "holiday-types"],
+              "query": [
+                { "key": "active", "value": "true" }
+              ]
+            },
+            "description": "Get all holiday types"
+          }
+        },
+        {
+          "name": "GET Holiday Type by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/holiday-types/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "holiday-types", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Get single holiday type by ID"
+          }
+        },
+        {
+          "name": "POST Create Holiday Type",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Compensatory Off\",\n  \"code\": \"COMP-OFF\",\n  \"description\": \"Extra working day compensatory leave\",\n  \"defaultDaysAllowed\": 12,\n  \"isPaid\": true,\n  \"requiresApproval\": true,\n  \"canCarryForward\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/holiday-types",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "holiday-types"]
+            },
+            "description": "Create new holiday type"
+          }
+        },
+        {
+          "name": "PUT Update Holiday Type",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"defaultDaysAllowed\": 15\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/holiday-types/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "holiday-types", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Update holiday type"
+          }
+        },
+        {
+          "name": "DELETE Holiday Type",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/holiday-types/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "holiday-types", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Delete holiday type (soft delete)"
+          }
+        },
+        {
+          "name": "POST Initialize Default Holiday Types",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/holiday-types/initialize",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "holiday-types", "initialize"]
+            },
+            "description": "Initialize default holiday types for a company"
+          }
+        }
+      ],
+      "description": "Holiday type management endpoints (6 endpoints)"
+    },
+    {
+      "name": "Promotions API",
+      "item": [
+        {
+          "name": "GET All Promotions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "status", "value": "", "disabled": true },
+                { "key": "type", "value": "", "disabled": true },
+                { "key": "departmentId", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Get all promotions with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Departments for Promotion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/departments",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", "departments"]
+            },
+            "description": "Get departments for promotion selection"
+          }
+        },
+        {
+          "name": "GET Designations for Promotion",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/designations",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", "designations"],
+              "query": [
+                { "key": "departmentId", "value": "", "disabled": true }
+              ]
+            },
+            "description": "Get designations for promotion selection"
+          }
+        },
+        {
+          "name": "GET Promotion by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Get single promotion by ID"
+          }
+        },
+        {
+          "name": "POST Create Promotion",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"employeeId\": \"employee_id_here\",\n  \"promotionTo\": {\n    \"departmentId\": \"department_id_here\",\n    \"designationId\": \"designation_id_here\"\n  },\n  \"promotionDate\": \"2026-04-01T00:00:00.000Z\",\n  \"promotionType\": \"Regular\",\n  \"salaryChange\": {\n    \"previousSalary\": 50000,\n    \"newSalary\": 60000,\n    \"increment\": 10000,\n    \"incrementPercentage\": 20\n  },\n  \"reason\": \"Performance-based promotion\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions"]
+            },
+            "description": "Create new promotion"
+          }
+        },
+        {
+          "name": "PUT Update Promotion",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"salaryChange\": {\n    \"newSalary\": 65000\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Update promotion"
+          }
+        },
+        {
+          "name": "PUT Apply Promotion",
+          "request": {
+            "method": "PUT",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/:id/apply",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", ":id", "apply"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Apply promotion to employee"
+          }
+        },
+        {
+          "name": "PUT Cancel Promotion",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Position filled by external candidate\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/:id/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", ":id", "cancel"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Cancel promotion"
+          }
+        },
+        {
+          "name": "DELETE Promotion",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/promotions/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "promotions", ":id"],
+              "variable": [
+                { "key": "id", "value": "" }
+              ]
+            },
+            "description": "Delete promotion (soft delete)"
+          }
+        }
+      ],
+      "description": "Promotion management endpoints (9 endpoints)"
+    }
+  ]
+}

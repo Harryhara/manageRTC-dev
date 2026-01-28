@@ -1,0 +1,439 @@
+{
+  "info": {
+    "name": "manageRTC Phase 3 APIs - Assets & Training",
+    "description": "REST API collection for Assets and Training management endpoints - Phase 3 of Socket.IO to REST Migration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "companyId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Assets API",
+      "item": [
+        {
+          "name": "GET All Assets",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "assignedTo",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all assets with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Asset by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get single asset by ID"
+          }
+        },
+        {
+          "name": "POST Create Asset",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"MacBook Pro 16\",\n  \"type\": \"electronics\",\n  \"category\": \"Laptops\",\n  \"serialNumber\": \"MBP-2024-001\",\n  \"purchaseDate\": \"2024-01-15\",\n  \"purchaseValue\": 2500,\n  \"status\": \"available\",\n  \"condition\": \"excellent\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assets",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets"]
+            },
+            "description": "Create new asset"
+          }
+        },
+        {
+          "name": "PUT Update Asset",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"assigned\",\n  \"assignedTo\": \"employee_id_here\",\n  \"assignmentType\": \"permanent\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Update asset"
+          }
+        },
+        {
+          "name": "DELETE Asset",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete asset (soft delete)"
+          }
+        },
+        {
+          "name": "GET Assets by Category",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/category/:category?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "category", ":category"],
+              "variable": [
+                {
+                  "key": "category",
+                  "value": "Laptops"
+                }
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get assets by category"
+          }
+        },
+        {
+          "name": "GET Assets by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/status/:status?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "status", ":status"],
+              "variable": [
+                {
+                  "key": "status",
+                  "value": "available"
+                }
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get assets by status (available/assigned/in-maintenance/retired/lost/damaged/sold/disposed)"
+          }
+        },
+        {
+          "name": "GET Asset Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/assets/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "assets", "stats"]
+            },
+            "description": "Get asset statistics"
+          }
+        }
+      ],
+      "description": "Asset management endpoints (8 endpoints)"
+    },
+    {
+      "name": "Training API",
+      "item": [
+        {
+          "name": "GET All Trainings",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "startDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all trainings with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Training by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get single training by ID"
+          }
+        },
+        {
+          "name": "POST Create Training",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Advanced JavaScript Training\",\n  \"type\": \"technical\",\n  \"category\": \"Frontend Development\",\n  \"description\": \"Learn advanced JavaScript concepts and patterns\",\n  \"startDate\": \"2024-03-01\",\n  \"endDate\": \"2024-03-05\",\n  \"maxParticipants\": 30,\n  \"status\": \"draft\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings"]
+            },
+            "description": "Create new training"
+          }
+        },
+        {
+          "name": "PUT Update Training",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"published\",\n  \"description\": \"Updated description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Update training"
+          }
+        },
+        {
+          "name": "DELETE Training",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete training (soft delete)"
+          }
+        },
+        {
+          "name": "GET Trainings by Type",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings/type/:type?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings", "type", ":type"],
+              "variable": [
+                {
+                  "key": "type",
+                  "value": "technical"
+                }
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get trainings by type (technical/soft-skills/compliance/safety/leadership/onboarding/certification/other)"
+          }
+        },
+        {
+          "name": "GET Training Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/trainings/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "trainings", "stats"]
+            },
+            "description": "Get training statistics"
+          }
+        }
+      ],
+      "description": "Training management endpoints (7 endpoints)"
+    }
+  ]
+}

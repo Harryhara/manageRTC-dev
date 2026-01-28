@@ -1,0 +1,619 @@
+{
+  "info": {
+    "name": "manageRTC Phase 2 APIs - Attendance & Leave",
+    "description": "REST API collection for Attendance and Leave management endpoints - Phase 2 of Socket.IO to REST Migration",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": "1.0.0"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000",
+      "type": "string"
+    },
+    {
+      "key": "companyId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Attendance API",
+      "item": [
+        {
+          "name": "GET All Attendance Records",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "employee",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "startDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all attendance records with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Attendance by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get single attendance record by ID"
+          }
+        },
+        {
+          "name": "POST Create Attendance (Clock In)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clockIn\": {\n    \"location\": {\n      \"type\": \"office\"\n    },\n    \"notes\": \"Clocking in for the day\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance"]
+            },
+            "description": "Clock in - Create new attendance record"
+          }
+        },
+        {
+          "name": "PUT Update Attendance (Clock Out)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"clockOut\": {\n    \"location\": {\n      \"type\": \"office\"\n    },\n    \"notes\": \"Clocking out for the day\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Clock out - Update attendance record"
+          }
+        },
+        {
+          "name": "DELETE Attendance",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete attendance record (soft delete)"
+          }
+        },
+        {
+          "name": "GET My Attendance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/my?limit=31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", "my"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "31"
+                },
+                {
+                  "key": "startDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get current user's attendance records"
+          }
+        },
+        {
+          "name": "GET Attendance by Date Range",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/daterange?startDate=2024-01-01&endDate=2024-01-31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", "daterange"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2024-01-01"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2024-01-31"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": true
+                },
+                {
+                  "key": "limit",
+                  "value": "31",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get attendance by date range"
+          }
+        },
+        {
+          "name": "GET Attendance by Employee",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/employee/:employeeId?limit=31",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", "employee", ":employeeId"],
+              "variable": [
+                {
+                  "key": "employeeId",
+                  "value": ""
+                }
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "31"
+                },
+                {
+                  "key": "startDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get attendance by employee"
+          }
+        },
+        {
+          "name": "GET Attendance Statistics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/stats",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", "stats"],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "employee",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get attendance statistics"
+          }
+        },
+        {
+          "name": "POST Bulk Attendance Action",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"action\": \"approve-regularization\",\n  \"attendanceIds\": [\"id1\", \"id2\"],\n  \"data\": {\n    \"reason\": \"Reason for action\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/attendance/bulk",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "attendance", "bulk"]
+            },
+            "description": "Bulk attendance actions (approve/reject regularization, update status, bulk delete)"
+          }
+        }
+      ],
+      "description": "Attendance management endpoints (10 endpoints)"
+    },
+    {
+      "name": "Leave API",
+      "item": [
+        {
+          "name": "GET All Leave Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "leaveType",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "employee",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "startDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "endDate",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get all leave requests with pagination and filtering"
+          }
+        },
+        {
+          "name": "GET Leave by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Get single leave request by ID"
+          }
+        },
+        {
+          "name": "POST Create Leave Request",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"leaveType\": \"casual\",\n  \"startDate\": \"2024-02-01\",\n  \"endDate\": \"2024-02-03\",\n  \"reason\": \"Personal work\",\n  \"isHalfDay\": false\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves"]
+            },
+            "description": "Create new leave request"
+          }
+        },
+        {
+          "name": "PUT Update Leave Request",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Updated reason for leave\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Update leave request"
+          }
+        },
+        {
+          "name": "DELETE Leave Request",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/:id",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", ":id"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Delete leave request (soft delete)"
+          }
+        },
+        {
+          "name": "GET My Leave Requests",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/my?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", "my"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "status",
+                  "value": "",
+                  "disabled": true
+                },
+                {
+                  "key": "leaveType",
+                  "value": "",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Get current user's leave requests"
+          }
+        },
+        {
+          "name": "GET Leaves by Status",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/status/:status?page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", "status", ":status"],
+              "variable": [
+                {
+                  "key": "status",
+                  "value": "pending"
+                }
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Get leave requests by status (pending/approved/rejected/cancelled/on-hold)"
+          }
+        },
+        {
+          "name": "POST Approve Leave",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"comments\": \"Leave approved\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/:id/approve",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", ":id", "approve"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Approve leave request"
+          }
+        },
+        {
+          "name": "POST Reject Leave",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Insufficient leave balance\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/:id/reject",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", ":id", "reject"],
+              "variable": [
+                {
+                  "key": "id",
+                  "value": ""
+                }
+              ]
+            },
+            "description": "Reject leave request"
+          }
+        },
+        {
+          "name": "GET Leave Balance",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/leaves/balance",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "leaves", "balance"],
+              "query": [
+                {
+                  "key": "leaveType",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Optional: Get balance for specific leave type (sick/casual/earned/etc.)"
+                }
+              ]
+            },
+            "description": "Get leave balance"
+          }
+        }
+      ],
+      "description": "Leave management endpoints (10 endpoints)"
+    }
+  ]
+}

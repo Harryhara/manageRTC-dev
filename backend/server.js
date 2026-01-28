@@ -30,6 +30,14 @@ import projectRoutes from "./routes/api/projects.js";
 import taskRoutes from "./routes/api/tasks.js";
 import leadRoutes from "./routes/api/leads.js";
 import clientRoutes from "./routes/api/clients.js";
+import attendanceRoutes from "./routes/api/attendance.js";
+import leaveRoutes from "./routes/api/leave.js";
+import assetRoutes from "./routes/api/assets.js";
+import trainingRoutes from "./routes/api/training.js";
+import activityRoutes from "./routes/api/activities.js";
+import pipelineRoutes from "./routes/api/pipelines.js";
+import holidayTypeRoutes from "./routes/api/holiday-types.js";
+import promotionRoutes from "./routes/api/promotions.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 
 config();
@@ -132,6 +140,14 @@ const initializeServer = async () => {
     app.use("/api/tasks", taskRoutes);
     app.use("/api/leads", leadRoutes);
     app.use("/api/clients", clientRoutes);
+    app.use("/api/attendance", attendanceRoutes);
+    app.use("/api/leaves", leaveRoutes);
+    app.use("/api/assets", assetRoutes);
+    app.use("/api/trainings", trainingRoutes);
+    app.use("/api/activities", activityRoutes);
+    app.use("/api/pipelines", pipelineRoutes);
+    app.use("/api/holiday-types", holidayTypeRoutes);
+    app.use("/api/promotions", promotionRoutes);
 
     app.get("/", (req, res) => {
       res.send("API is running");
