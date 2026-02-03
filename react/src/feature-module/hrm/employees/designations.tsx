@@ -13,6 +13,8 @@ import { Socket } from "socket.io-client";
 import { departmentSelect } from '../../../core/common/selectoption/selectoption';
 import Footer from "../../../core/common/footer";
 import { showModal, hideModal, cleanupModalBackdrops } from '../../../utils/modalUtils';
+import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
+import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 
 type PasswordField = "password" | "confirmPassword";
 
@@ -20,8 +22,8 @@ interface Designations {
   _id: string;
   designation: string;
   departmentId: string;
-  department: string;
-  employeeCount: number;
+  department?: string;
+  employeeCount?: number;
   status: string;
 }
 
@@ -32,10 +34,10 @@ interface Departments {
 }
 
 interface DesignationStats {
-  total: number;
-  active: number;
-  inactive: number;
-  emptyDesignations: number;
+  totalDesignations?: number;
+  activeCount?: number;
+  inactiveCount?: number;
+  emptyDesignations?: number;
 }
 
 const statusChoose = [
@@ -48,14 +50,34 @@ const staticOptions = [
 ];
 
 const Designations = () => {
+  // REST hooks for designations and departments
+  const {
+    designations,
+    stats: hookStats,
+    loading: designationsLoading,
+    error: designationsError,
+    fetchDesignations,
+    createDesignation,
+    updateDesignation,
+    deleteDesignation,
+    fetchStats
+  } = useDesignationsREST();
+
+  const {
+    departments,
+    loading: departmentsLoading,
+    error: departmentsError,
+    fetchDepartments
+  } = useDepartmentsREST();
+
+  const socket = useSocket() as Socket | null;
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [designationName, setDesignationName] = useState("");
   const [departmentId, setDepartmentId] = useState(staticOptions[0]?.value || "");
   const [status, setStatus] = useState("Active");
   const [responseData, setResponseData] = useState<Designations[]>([]);
-  const [departments, setDepartments] = useState<Departments[]>([]);
-  const [designations, setDesignations] = useState<Designations[]>([]);
   const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>("");
   const [sortedDesignations, setSortedDesignations] = useState<Designations[]>([]);
   const [sortOrder, setSortOrder] = useState("");
@@ -72,151 +94,96 @@ const Designations = () => {
   const [targetDesignationId, setTargetDesignationId] = useState("");
   const [isReassigning, setIsReassigning] = useState(false);
   const [stats, setStats] = useState<DesignationStats>({
-    total: 0,
-    active: 0,
-    inactive: 0,
+    totalDesignations: 0,
+    activeCount: 0,
+    inactiveCount: 0,
     emptyDesignations: 0,
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const socket = useSocket() as Socket | null;
+  // Initial data fetch and update local state when hook data changes
+  useEffect(() => {
+    setLoading(designationsLoading || departmentsLoading);
+    setError(designationsError || departmentsError);
+  }, [designationsLoading, departmentsLoading, designationsError, departmentsError]);
 
+  // Update local stats when stats from hook change
+  useEffect(() => {
+    if (hookStats) {
+      setStats({
+        totalDesignations: hookStats.totalDesignations || 0,
+        activeCount: hookStats.activeCount || 0,
+        inactiveCount: hookStats.inactiveCount || 0,
+        emptyDesignations: designations.filter(d => (d.employeeCount || 0) === 0).length,
+      });
+    }
+  }, [hookStats, designations]);
+
+  // Fetch initial data on mount
+  useEffect(() => {
+    const initializeData = async () => {
+      await Promise.all([
+        fetchDesignations(),
+        fetchStats(),
+        fetchDepartments()
+      ]);
+    };
+    initializeData();
+  }, []);
+
+  // Socket.IO real-time listeners for broadcast events only
   useEffect(() => {
     if (!socket) return;
 
-    let isMounted = true;
-    setLoading(true);
-
-    const timeoutId = setTimeout(() => {
-      if (loading && isMounted) {
-        console.warn("Designations loading timeout - showing fallback");
-        setError("Designations loading timed out. Please refresh the page.");
-        setLoading(false);
-      }
-    }, 30000);
-
-    socket.emit("hr/departments/get");
-    socket.emit("hrm/designations/get");
-    socket.emit("hrm/designations/stats");
-
-    const handleDepartmentsResponse = (response: any) => {
-      if (!isMounted) return;
-      if (response.data) {
-        setDepartments(response.data);
-        setError(null);
-        setLoading(false);
-      } else {
-        setError(response.error || "Failed to fetch Departments");
-        setLoading(false);
-      }
+    const handleDesignationCreated = (data: Designations) => {
+      console.log('[Designations] Designation created via broadcast:', data);
+      fetchDesignations();
+      fetchStats();
     };
 
-    const handleAddDesignationsResponse = (response: any) => {
-      if (!isMounted) return;
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setLoading(false);
-        // Reset form fields after successful submission
-        resetAddDesignationForm();
-        if (socket) {
-          socket.emit("hrm/designations/get");
-          socket.emit("hrm/designations/stats");
-        }
-      } else {
-        setError(response.error || "Failed to add Designations");
-        setLoading(false);
-      }
+    const handleDesignationUpdated = (data: Designations) => {
+      console.log('[Designations] Designation updated via broadcast:', data);
+      fetchDesignations();
+      fetchStats();
     };
 
-    const handleDisplayResponse = (response: any) => {
-      if (!isMounted) return;
-      if (response.done) {
-        setResponseData(response.data);
-        setDesignations(response.data);
-        setError(null);
-        setLoading(false);
-      } else {
-        console.log("error form desgn", response.error);
-        setError(response.error || "Failed to fetch Designations");
-        setLoading(false);
-      }
+    const handleDesignationDeleted = (data: { _id: string }) => {
+      console.log('[Designations] Designation deleted via broadcast:', data);
+      fetchDesignations();
+      fetchStats();
     };
 
-    const handleUpdateResponse = (response: any) => {
-      if (!isMounted) return;
-      setUpdateLoading(false);
-      if (response.done) {
-        setError(null);
-        resetEditDesignationForm();
-        // Close modal only on success
-        hideModal('edit_designation');
-        setTimeout(() => cleanupModalBackdrops(), 500);
-        socket?.emit("hrm/designations/get");
-      } else {
-        // Show backend error inline - keep modal open
-        setEditDesignationNameError(response.error || "Failed to update designation");
-      }
+    const handleDepartmentCreated = (data: Departments) => {
+      console.log('[Designations] Department created via broadcast:', data);
+      fetchDepartments();
     };
 
-    const handleDeleteResponse = (response: any) => {
-      if (!isMounted) return;
-      if (response.done) {
-        setError(null);
-        setLoading(false);
-        socket?.emit("hrm/designations/get");
-      } else {
-        setError(response.error || "Failed to delete designation");
-        setLoading(false);
-      }
+    const handleDepartmentUpdated = (data: Departments) => {
+      console.log('[Designations] Department updated via broadcast:', data);
+      fetchDepartments();
     };
 
-    const handleReassignDeleteResponse = (response: any) => {
-      setIsReassigning(false);
-      if (!isMounted) return;
-      if (response.done) {
-        setError(null);
-        setShowReassignModal(false);
-        setTargetDesignationId("");
-        setDesignationToDelete(null);
-        // Close modal and refresh data
-        hideModal('reassign_delete_designation_modal');
-        if (socket) {
-          socket.emit("hrm/designations/get");
-          socket.emit("hrm/designations/stats");
-        }
-      } else {
-        setError(response.error || "Failed to reassign and delete designation");
-      }
+    const handleDepartmentDeleted = (data: { _id: string }) => {
+      console.log('[Designations] Department deleted via broadcast:', data);
+      fetchDepartments();
     };
 
-    const handleDesignationStatsResponse = (response: any) => {
-      if (!isMounted) return;
-      if (response.done && response.data) {
-        setStats(response.data);
-      }
-    };
-
-    // Register all listeners
-    socket.on("hrm/designations/add-response", handleAddDesignationsResponse);
-    socket.on("hrm/designations/get-response", handleDisplayResponse);
-    socket.on("hrm/designations/update-response", handleUpdateResponse);
-    socket.on("hrm/designations/delete-response", handleDeleteResponse);
-    socket.on("hrm/designations/reassign-delete-response", handleReassignDeleteResponse);
-    socket.on("hr/departments/get-response", handleDepartmentsResponse);
-    socket.on("hrm/designations/stats-response", handleDesignationStatsResponse);
+    socket.on('designation:created', handleDesignationCreated);
+    socket.on('designation:updated', handleDesignationUpdated);
+    socket.on('designation:deleted', handleDesignationDeleted);
+    socket.on('department:created', handleDepartmentCreated);
+    socket.on('department:updated', handleDepartmentUpdated);
+    socket.on('department:deleted', handleDepartmentDeleted);
 
     return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-      socket.off("hrm/designations/add-response", handleAddDesignationsResponse);
-      socket.off("hrm/designations/get-response", handleDisplayResponse);
-      socket.off("hrm/designations/update-response", handleUpdateResponse);
-      socket.off("hrm/designations/delete-response", handleDeleteResponse);
-      socket.off("hrm/designations/reassign-delete-response", handleReassignDeleteResponse);
-      socket.off("hr/departments/get-response", handleDepartmentsResponse);
-      socket.off("hrm/designations/stats-response", handleDesignationStatsResponse);
+      socket.off('designation:created', handleDesignationCreated);
+      socket.off('designation:updated', handleDesignationUpdated);
+      socket.off('designation:deleted', handleDesignationDeleted);
+      socket.off('department:created', handleDepartmentCreated);
+      socket.off('department:updated', handleDepartmentUpdated);
+      socket.off('department:deleted', handleDepartmentDeleted);
     };
-  }, [socket]);
+  }, [socket, fetchDesignations, fetchStats, fetchDepartments]);
 
   // Helper function to normalize status display (capitalize first letter)
   const normalizeStatus = (status: string): string => {
@@ -331,7 +298,7 @@ const Designations = () => {
     setDepartmentIdError(null);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     try {
       setError(null);
       setDesignationNameError(null);
@@ -352,28 +319,28 @@ const Designations = () => {
         return;
       }
 
-      setLoading(true);
+      setIsSubmitting(true);
 
       const data = {
-        designationName,
+        designation: designationName,
         departmentId: selectedDepartmentId,
-        status,
+        status: status as 'Active' | 'Inactive' | 'On Notice' | 'Resigned' | 'Terminated' | 'On Leave',
       };
 
-      if (socket) {
-        socket.emit("hrm/designations/add", data);
-        
-        // Close modal programmatically after successful validation and submission
-        const modalElement = document.getElementById('add_designation');
-        if (modalElement) {
-          const modal = window.bootstrap?.Modal?.getInstance(modalElement);
-          if (modal) {
-            modal.hide();
-          }
-        }
-      } else {
-        setError("Socket connection is not available.");
-        setLoading(false);
+      const success = await createDesignation(data);
+
+      if (success) {
+        // Refresh designations list and stats
+        await Promise.all([
+          fetchDesignations(filters),
+          fetchStats()
+        ]);
+        // Reset form fields after successful submission
+        resetAddDesignationForm();
+        // Close modal programmatically after successful response
+        hideModal('add_designation');
+        // Extra safety cleanup after animation
+        setTimeout(() => cleanupModalBackdrops(), 500);
       }
     } catch (error) {
       if (error instanceof Error) {
@@ -381,7 +348,8 @@ const Designations = () => {
       } else {
         setError("An unexpected error occurred");
       }
-      setLoading(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -404,19 +372,16 @@ const Designations = () => {
       return 0;
     });
     setSortedDesignations(sortedData);
-    setDesignations(sortedData);
   };
 
-  const applyFilters = (updatedFields: {
+  const applyFilters = async (updatedFields: {
     department?: string;
     status?: string;
   }) => {
     try {
       setFilters(prevFilters => {
         const newFilters = { ...prevFilters, ...updatedFields };
-        if (socket) {
-          socket.emit("hrm/designations/get", { ...newFilters });
-        }
+        fetchDesignations(newFilters);
         return newFilters;
       });
     } catch (error) {
@@ -434,7 +399,7 @@ const Designations = () => {
     applyFilters({ status });
   };
 
-  const handleUpdateSubmit = () => {
+  const handleUpdateSubmit = async () => {
     try {
       if (!editingDesignation) {
         setError("No designation selected for update");
@@ -473,21 +438,24 @@ const Designations = () => {
       }
 
       // Ensure status is stored with proper capitalization
-      const normalizedStatus = normalizeStatus(status);
+      const normalizedStatus = normalizeStatus(status) as 'Active' | 'Inactive' | 'On Notice' | 'Resigned' | 'Terminated' | 'On Leave';
 
       const payload = {
-        designationId: _id,
         designation: designation.trim(),
         departmentId: departmentId.trim(),
         status: normalizedStatus,
       };
 
-      if (socket) {
-        socket.emit("hrm/designations/update", payload);
-        // Modal will be closed by handleUpdateResponse on success
-      } else {
-        setEditDesignationNameError("Socket connection is not available.");
-        setUpdateLoading(false);
+      const success = await updateDesignation(_id, payload);
+
+      if (success) {
+        setError(null);
+        resetEditDesignationForm();
+        // Close modal only on success
+        hideModal('edit_designation');
+        setTimeout(() => cleanupModalBackdrops(), 500);
+        // Refresh designations list
+        await fetchDesignations(filters);
       }
     } catch (error) {
       setUpdateLoading(false);
@@ -496,19 +464,15 @@ const Designations = () => {
       } else {
         setEditDesignationNameError("An unexpected error occurred");
       }
+    } finally {
+      setUpdateLoading(false);
     }
   };
 
-  const deleteDesignation = (designationId: string) => {
+  const handleDeleteDesignation = async (designationId: string) => {
     try {
       setLoading(true);
       setError(null);
-
-      if (!socket) {
-        setError("Socket connection is not available");
-        setLoading(false);
-        return;
-      }
 
       if (!designationId) {
         setError("Designation ID is required");
@@ -516,18 +480,24 @@ const Designations = () => {
         return;
       }
 
-      const data = {
-        _id: designationId,
-      };
+      const success = await deleteDesignation(designationId);
 
-      socket.emit("hrm/designations/delete", data);
+      if (success) {
+        setError(null);
+        // Refresh designations list and stats
+        await Promise.all([
+          fetchDesignations(filters),
+          fetchStats()
+        ]);
+      }
     } catch (error) {
-      setError("Failed to initiate designation deletion");
+      setError("Failed to delete designation");
+    } finally {
       setLoading(false);
     }
   };
 
-  const handleReassignAndDelete = () => {
+  const handleReassignAndDelete = async () => {
     if (!designationToDelete || !targetDesignationId) {
       setError("Please select a target designation");
       return;
@@ -537,19 +507,24 @@ const Designations = () => {
       setIsReassigning(true);
       setError(null);
 
-      const payload = {
-        sourceDesignationId: designationToDelete._id,
-        targetDesignationId: targetDesignationId,
-      };
+      const success = await deleteDesignation(designationToDelete._id, targetDesignationId);
 
-      if (socket) {
-        socket.emit("hrm/designations/reassign-delete", payload);
-      } else {
-        setError("Socket connection is not available");
-        setIsReassigning(false);
+      if (success) {
+        setError(null);
+        setShowReassignModal(false);
+        setTargetDesignationId("");
+        setDesignationToDelete(null);
+        // Close modal and refresh data
+        hideModal('reassign_delete_designation_modal');
+        // Refresh designations list and stats
+        await Promise.all([
+          fetchDesignations(filters),
+          fetchStats()
+        ]);
       }
     } catch (error) {
-      setError("Failed to initiate reassignment");
+      setError("Failed to reassign and delete designation");
+    } finally {
       setIsReassigning(false);
     }
   };
@@ -702,7 +677,7 @@ const Designations = () => {
                       <p className="fs-12 fw-medium mb-1 text-truncate">
                         Total Designations
                       </p>
-                      <h4>{stats?.total || 0}</h4>
+                      <h4>{stats?.totalDesignations || 0}</h4>
                     </div>
                   </div>
                 </div>
@@ -724,7 +699,7 @@ const Designations = () => {
                       <p className="fs-12 fw-medium mb-1 text-truncate">
                         Active Designations
                       </p>
-                      <h4>{stats?.active || 0}</h4>
+                      <h4>{stats?.activeCount || 0}</h4>
                     </div>
                   </div>
                 </div>
@@ -746,7 +721,7 @@ const Designations = () => {
                       <p className="fs-12 fw-medium mb-1 text-truncate">
                         Inactive Designations
                       </p>
-                      <h4>{stats?.inactive || 0}</h4>
+                      <h4>{stats?.inactiveCount || 0}</h4>
                     </div>
                   </div>
                 </div>
@@ -801,7 +776,7 @@ const Designations = () => {
                     ) : error ? (
                       <li>
                         <div className="dropdown-item text-danger">
-                          {error} <button onClick={() => socket?.emit("hr/departments/get")}>Retry</button>
+                          {error} <button onClick={() => fetchDepartments()}>Retry</button>
                         </div>
                       </li>
                     ) : (
@@ -971,7 +946,7 @@ const Designations = () => {
                         </div>
                       ) : error ? (
                         <div className="alert alert-danger">
-                          {error} <button onClick={() => socket?.emit("hr/departments/get")}>Retry</button>
+                          {error} <button onClick={() => fetchDepartments()}>Retry</button>
                         </div>
                       ) : (
                         <>
@@ -1027,13 +1002,13 @@ const Designations = () => {
                 >
                   Cancel
                 </button>
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   className="btn btn-primary"
-                  disabled={loading} 
+                  disabled={isSubmitting}
                   onClick={handleSubmit}
                 >
-                  Add Designation
+                  {isSubmitting ? 'Adding...' : 'Add Designation'}
                 </button>
               </div>
             </form>
@@ -1194,7 +1169,7 @@ const Designations = () => {
                   data-bs-dismiss="modal"
                   onClick={() => {
                     if (designationToDelete) {
-                      deleteDesignation(designationToDelete._id);
+                      handleDeleteDesignation(designationToDelete._id);
                     }
                     setDesignationToDelete(null);
                   }}

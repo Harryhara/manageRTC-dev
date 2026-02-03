@@ -1,34 +1,72 @@
 /**
- * Employees REST API Hook
+ * Employees REST API Hook - Enhanced
  * Replaces Socket.IO-based employee operations with REST API calls
+ * Real-time updates still use Socket.IO listeners for broadcasts
  */
 
 import { useState, useCallback, useEffect } from 'react';
 import { useSocket } from '../SocketContext';
 import { message } from 'antd';
-import { get, post, put, del, buildParams, ApiResponse } from '../services/api';
+import { get, post, put, del, patch, buildParams, ApiResponse, getAuthToken } from '../services/api';
+
+// Permission Module Types
+export type PermissionModule =
+  | 'holidays'
+  | 'leaves'
+  | 'clients'
+  | 'projects'
+  | 'tasks'
+  | 'chats'
+  | 'assets'
+  | 'timingSheets';
+
+export type PermissionAction =
+  | 'read'
+  | 'write'
+  | 'create'
+  | 'delete'
+  | 'import'
+  | 'export';
+
+export interface PermissionSet {
+  read: boolean;
+  write: boolean;
+  create: boolean;
+  delete: boolean;
+  import: boolean;
+  export: boolean;
+}
 
 export interface Employee {
   _id: string;
   employeeId: string;
   firstName: string;
   lastName: string;
+  fullName?: string;
   email: string;
   phone?: string;
-  department?: string;
-  designation?: string;
+  departmentId?: string;
+  department?: string; // Populated
+  designationId?: string;
+  designation?: string; // Populated
+  reportingTo?: string;
+  reportingToName?: string; // Populated
   manager?: string;
-  status: 'Active' | 'Inactive' | 'OnLeave';
-  gender?: 'Male' | 'Female' | 'Other';
+  status: 'Active' | 'Inactive' | 'On Notice' | 'Resigned' | 'Terminated' | 'On Leave';
+  employmentStatus?: 'Active' | 'Probation' | 'Resigned' | 'Terminated' | 'On Leave';
+  gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
   dateOfBirth?: string;
   dateOfJoining: string;
+  joiningDate?: string; // Alias for dateOfJoining
   salary?: number;
   avatar?: string;
+  avatarUrl?: string;
   address?: {
     street?: string;
     city?: string;
     state?: string;
     zipCode?: string;
+    postalCode?: string;
     country?: string;
   };
   skills?: string[];
@@ -37,34 +75,164 @@ export interface Employee {
     institution: string;
     year: number;
   }>;
+  experience?: Array<{
+    company: string;
+    position: string;
+    startDate: string;
+    endDate: string;
+    current: boolean;
+  }>;
   emergencyContact?: {
     name: string;
     relationship: string;
     phone: string;
   };
-  createdAt: string;
-  updatedAt: string;
+  bankDetails?: {
+    bankName?: string;
+    accountNumber?: string;
+    ifscCode?: string;
+    branch?: string;
+  };
+  personal?: {
+    gender?: string;
+    birthday?: string;
+    passport?: {
+      number?: string;
+      expiryDate?: string;
+      country?: string;
+    };
+    religion?: string;
+    maritalStatus?: string;
+    employmentOfSpouse?: string;
+    noOfChildren?: number;
+    address?: {
+      street?: string;
+      city?: string;
+      state?: string;
+      postalCode?: string;
+      country?: string;
+    };
+  };
+  family?: {
+    Name?: string;
+    relationship?: string;
+    phone?: string;
+  };
+  education?: {
+    institution?: string;
+    degree?: string;
+    course?: string;
+    startDate?: string;
+    endDate?: string;
+  };
+  about?: string;
+  companyName?: string;
+  companyId?: string;
+  role?: string;
+  enabledModules?: Record<PermissionModule, boolean>;
+  permissions?: Record<PermissionModule, PermissionSet>;
+  totalProjects?: number;
+  completedProjects?: number;
+  productivity?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface EmployeeFilters {
   page?: number;
   limit?: number;
   department?: string;
+  departmentId?: string;
   status?: string;
-  manager?: string;
+  designation?: string;
   search?: string;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  startDate?: string;
+  endDate?: string;
 }
 
 export interface EmployeeStats {
   totalEmployees: number;
-  activeEmployees: number;
-  inactiveEmployees: number;
-  onLeaveEmployees: number;
-  newHiresThisMonth: number;
-  departmentCounts: Record<string, number>;
+  activeCount: number;
+  inactiveCount: number;
+  newJoinersCount: number;
 }
+
+export interface LifecycleStatusResponse {
+  hasLifecycleRecord: boolean;
+  canChangeStatus: boolean;
+  type?: 'resignation' | 'termination';
+  status?: string;
+  effectiveDate?: string;
+  lastWorkingDate?: string;
+  message?: string;
+}
+
+export interface CreateEmployeeRequest {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone?: string;
+  departmentId: string;
+  designationId: string;
+  dateOfJoining: string;
+  employmentType?: 'Full-time' | 'Part-time' | 'Contract' | 'Intern';
+  salary?: {
+    basic: number;
+    hra?: number;
+    allowances?: number;
+    currency?: string;
+  };
+  status?: string;
+  personal?: any;
+  contact?: {
+    email: string;
+    phone?: string;
+  };
+  account?: {
+    role?: string;
+    userName?: string;
+  };
+}
+
+export interface UpdatePermissionsRequest {
+  employeeId: string;
+  enabledModules: Record<PermissionModule, boolean>;
+  permissions: Record<PermissionModule, PermissionSet>;
+}
+
+export interface CheckDuplicatesResponse {
+  done: boolean;
+  exists?: boolean;
+  error?: string;
+  field?: string;
+}
+
+/**
+ * Normalize status to ensure correct case
+ */
+const normalizeStatus = (
+  status: string | undefined,
+):
+  | 'Active'
+  | 'Inactive'
+  | 'On Notice'
+  | 'Resigned'
+  | 'Terminated'
+  | 'On Leave' => {
+  if (!status) return 'Active';
+  const normalized = status.toLowerCase();
+
+  if (normalized === 'active') return 'Active';
+  if (normalized === 'inactive') return 'Inactive';
+  if (normalized === 'on notice') return 'On Notice';
+  if (normalized === 'resigned') return 'Resigned';
+  if (normalized === 'terminated') return 'Terminated';
+  if (normalized === 'on leave') return 'On Leave';
+
+  return 'Active';
+};
 
 /**
  * Employees REST API Hook
@@ -76,15 +244,54 @@ export const useEmployeesREST = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchEmployees = useCallback(async (filters: EmployeeFilters = {}) => {
+  /**
+   * Fetch employees with stats
+   * REST API: GET /api/employees
+   */
+  const fetchEmployeesWithStats = useCallback(async (filters: EmployeeFilters = {}) => {
+    // Guard: Check for auth token before making request
+    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
+    const token = getAuthToken();
+
+    if (!token) {
+      console.log('[useEmployeesREST] Cannot fetch - missing auth token', { hasToken: !!token });
+      setError('Authentication required. Please ensure you are logged in.');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     try {
+      // Fetch employees list
       const params = buildParams(filters);
       const response: ApiResponse<Employee[]> = await get('/employees', { params });
 
       if (response.success && response.data) {
-        setEmployees(response.data);
+        // Normalize status for all employees
+        const normalizedEmployees = response.data.map((emp: Employee) => ({
+          ...emp,
+          status: normalizeStatus(emp.status)
+        }));
+
+        setEmployees(normalizedEmployees);
+
+        // Calculate stats from the employee data
+        const total = normalizedEmployees.length;
+        const activeCount = normalizedEmployees.filter(e => e.status === 'Active').length;
+        const inactiveCount = normalizedEmployees.filter(e => e.status === 'Inactive').length;
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+        const newJoinersCount = normalizedEmployees.filter(e => {
+          if (!e.createdAt) return false;
+          return new Date(e.createdAt) >= sevenDaysAgo;
+        }).length;
+
+        setStats({
+          totalEmployees: total,
+          activeCount,
+          inactiveCount,
+          newJoinersCount
+        });
       } else {
         throw new Error(response.error?.message || 'Failed to fetch employees');
       }
@@ -97,6 +304,40 @@ export const useEmployeesREST = () => {
     }
   }, []);
 
+  /**
+   * Fetch employee list (without stats)
+   * REST API: GET /api/employees
+   */
+  const fetchEmployees = useCallback(async (filters: EmployeeFilters = {}) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const params = buildParams(filters);
+      const response: ApiResponse<Employee[]> = await get('/employees', { params });
+
+      if (response.success && response.data) {
+        // Normalize status for all employees
+        const normalizedEmployees = response.data.map((emp: Employee) => ({
+          ...emp,
+          status: normalizeStatus(emp.status)
+        }));
+        setEmployees(normalizedEmployees);
+      } else {
+        throw new Error(response.error?.message || 'Failed to fetch employees');
+      }
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch employees';
+      setError(errorMessage);
+      message.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Fetch employee statistics separately
+   * REST API: GET /api/employees/dashboard
+   */
   const fetchStats = useCallback(async () => {
     try {
       const response: ApiResponse<EmployeeStats> = await get('/employees/dashboard');
@@ -109,6 +350,10 @@ export const useEmployeesREST = () => {
     }
   }, []);
 
+  /**
+   * Get single employee by ID
+   * REST API: GET /api/employees/:id
+   */
   const getEmployeeById = useCallback(async (employeeId: string): Promise<Employee | null> => {
     try {
       const response: ApiResponse<Employee> = await get(`/employees/${employeeId}`);
@@ -124,72 +369,388 @@ export const useEmployeesREST = () => {
     }
   }, []);
 
-  const createEmployee = useCallback(async (employeeData: Partial<Employee>): Promise<boolean> => {
+  /**
+   * Get employee details by employeeId string (not ObjectId)
+   * REST API: GET /api/employees/:employeeId
+   */
+  const getEmployeeDetails = useCallback(async (employeeId: string): Promise<Employee | null> => {
     try {
-      const response: ApiResponse<Employee> = await post('/employees', employeeData);
+      const response: ApiResponse<Employee> = await get(`/employees/${employeeId}`);
 
       if (response.success && response.data) {
-        message.success('Employee created successfully!');
-        setEmployees(prev => [...prev, response.data!]);
-        return true;
+        return response.data;
       }
-      throw new Error(response.error?.message || 'Failed to create employee');
+      throw new Error(response.error?.message || 'Failed to fetch employee details');
     } catch (err: any) {
-      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to create employee';
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch employee details';
       message.error(errorMessage);
-      return false;
+      return null;
     }
   }, []);
 
-  const updateEmployee = useCallback(async (employeeId: string, updateData: Partial<Employee>): Promise<boolean> => {
+  /**
+   * Create new employee
+   * REST API: POST /api/employees
+   */
+  const createEmployee = useCallback(async (
+    employeeData: CreateEmployeeRequest,
+    permissionsData?: UpdatePermissionsRequest
+  ): Promise<{ success: boolean; employee?: Employee; error?: any }> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = permissionsData
+        ? { ...employeeData, permissionsData }
+        : employeeData;
+
+      const response: ApiResponse<{ employeeId: string; employee: Employee }> =
+        await post('/employees', payload);
+
+      if (response.success && response.data) {
+        message.success('Employee created successfully!');
+        // Refresh the list to get the updated employee
+        await fetchEmployeesWithStats();
+        return { success: true, employee: response.data.employee };
+      }
+      throw new Error(response.error?.message || 'Failed to create employee');
+    } catch (err: any) {
+      const errorResponse = err.response?.data;
+      const errorMessage = errorResponse?.error?.message || err.message || 'Failed to create employee';
+
+      setError(errorMessage);
+      message.error(errorMessage);
+      return { success: false, error: errorResponse?.error || errorMessage };
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchEmployeesWithStats]);
+
+  /**
+   * Update employee basic info
+   * REST API: PUT /api/employees/:id
+   */
+  const updateEmployee = useCallback(async (
+    employeeId: string,
+    updateData: Partial<Employee>
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
     try {
       const response: ApiResponse<Employee> = await put(`/employees/${employeeId}`, updateData);
 
       if (response.success && response.data) {
         message.success('Employee updated successfully!');
-        setEmployees(prev =>
-          prev.map(emp => (emp._id === employeeId ? { ...emp, ...response.data! } : emp))
-        );
+        // Refresh the list
+        await fetchEmployeesWithStats();
         return true;
       }
       throw new Error(response.error?.message || 'Failed to update employee');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update employee';
+      setError(errorMessage);
       message.error(errorMessage);
       return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [fetchEmployeesWithStats]);
+
+  /**
+   * Update employee permissions
+   * REST API: PUT /api/employees/:id
+   */
+  const updatePermissions = useCallback(async (
+    permissionsData: UpdatePermissionsRequest
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${permissionsData.employeeId}`, permissionsData);
+
+      if (response.success) {
+        message.success('Permissions updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update permissions');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update permissions';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
     }
   }, []);
 
+  /**
+   * Update employee personal information
+   * REST API: PUT /api/employees/:id
+   */
+  const updatePersonalInfo = useCallback(async (
+    employeeId: string,
+    personalData: any
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        personal: personalData
+      });
+
+      if (response.success) {
+        message.success('Personal information updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update personal info');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update personal info';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Update employee bank details
+   * REST API: PUT /api/employees/:id
+   */
+  const updateBankDetails = useCallback(async (
+    employeeId: string,
+    bankData: any
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        bank: bankData
+      });
+
+      if (response.success) {
+        message.success('Bank details updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update bank details');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update bank details';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Update employee family information
+   * REST API: PUT /api/employees/:id
+   */
+  const updateFamilyInfo = useCallback(async (
+    employeeId: string,
+    familyData: any
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        family: familyData
+      });
+
+      if (response.success) {
+        message.success('Family information updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update family info');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update family info';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Update employee education information
+   * REST API: PUT /api/employees/:id
+   */
+  const updateEducationInfo = useCallback(async (
+    employeeId: string,
+    educationData: any
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        education: educationData
+      });
+
+      if (response.success) {
+        message.success('Education details updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update education info');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update education info';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Update employee emergency contacts
+   * REST API: PUT /api/employees/:id
+   */
+  const updateEmergencyContacts = useCallback(async (
+    employeeId: string,
+    emergencyContacts: any
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        emergencyContacts
+      });
+
+      if (response.success) {
+        message.success('Emergency contacts updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update emergency contacts');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update emergency contacts';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Update employee experience
+   * REST API: PUT /api/employees/:id
+   */
+  const updateExperienceInfo = useCallback(async (
+    employeeId: string,
+    experienceData: any
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        experience: experienceData
+      });
+
+      if (response.success) {
+        message.success('Experience updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update experience');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update experience';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Update employee about section
+   * REST API: PUT /api/employees/:id
+   */
+  const updateAboutInfo = useCallback(async (
+    employeeId: string,
+    about: string
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await put(`/employees/${employeeId}`, {
+        about
+      });
+
+      if (response.success) {
+        message.success('About section updated successfully!');
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to update about section');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to update about section';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Delete employee
+   * REST API: DELETE /api/employees/:id
+   */
   const deleteEmployee = useCallback(async (employeeId: string): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
     try {
       const response: ApiResponse = await del(`/employees/${employeeId}`);
 
       if (response.success) {
         message.success('Employee deleted successfully!');
-        setEmployees(prev => prev.filter(emp => emp._id !== employeeId));
+        // Refresh the list
+        await fetchEmployeesWithStats();
         return true;
       }
       throw new Error(response.error?.message || 'Failed to delete employee');
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete employee';
+      setError(errorMessage);
       message.error(errorMessage);
       return false;
+    } finally {
+      setLoading(false);
     }
-  }, []);
+  }, [fetchEmployeesWithStats]);
 
+  /**
+   * Search employees
+   * REST API: GET /api/employees/search
+   */
   const searchEmployees = useCallback(async (searchTerm: string) => {
+    setLoading(true);
+    setError(null);
     try {
-      const response: ApiResponse<Employee[]> = await get('/employees/search', { params: { q: searchTerm } });
+      const response: ApiResponse<Employee[]> = await get('/employees/search', {
+        params: { q: searchTerm }
+      });
 
       if (response.success && response.data) {
-        setEmployees(response.data);
+        const normalizedEmployees = response.data.map((emp: Employee) => ({
+          ...emp,
+          status: normalizeStatus(emp.status)
+        }));
+        setEmployees(normalizedEmployees);
       }
     } catch (err: any) {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to search employees';
+      setError(errorMessage);
       message.error(errorMessage);
+    } finally {
+      setLoading(false);
     }
   }, []);
 
+  /**
+   * Get employee statistics by department
+   * REST API: GET /api/employees/stats/by-department
+   */
   const getDepartmentStats = useCallback(async () => {
     try {
       const response: ApiResponse<Record<string, number>> = await get('/employees/stats/by-department');
@@ -204,27 +765,76 @@ export const useEmployeesREST = () => {
     }
   }, []);
 
-  // Socket.IO real-time listeners
+  /**
+   * Check for duplicate email/phone
+   * REST API: POST /api/employees/check-duplicates
+   */
+  const checkDuplicates = useCallback(async (
+    email: string,
+    phone?: string,
+    excludeEmployeeId?: string
+  ): Promise<CheckDuplicatesResponse> => {
+    try {
+      const payload: any = { email };
+      if (phone) payload.phone = phone;
+      if (excludeEmployeeId) payload.excludeEmployeeId = excludeEmployeeId;
+
+      const response: ApiResponse<CheckDuplicatesResponse> =
+        await post('/employees/check-duplicates', payload);
+
+      return response.data || { done: true };
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to check duplicates';
+      return {
+        done: false,
+        error: errorMessage
+      };
+    }
+  }, []);
+
+  /**
+   * Check employee lifecycle status
+   * REST API: POST /api/employees/check-lifecycle-status
+   */
+  const checkLifecycleStatus = useCallback(async (
+    employeeId: string
+  ): Promise<LifecycleStatusResponse> => {
+    try {
+      const response: ApiResponse<LifecycleStatusResponse> =
+        await post('/employees/check-lifecycle-status', { employeeId });
+
+      return response.data || { hasLifecycleRecord: false, canChangeStatus: true };
+    } catch (err: any) {
+      console.error('[useEmployeesREST] Failed to check lifecycle status:', err);
+      return { hasLifecycleRecord: false, canChangeStatus: true };
+    }
+  }, []);
+
+  // Socket.IO real-time listeners for broadcast notifications
   useEffect(() => {
     if (!socket) return;
 
     const handleEmployeeCreated = (data: Employee) => {
       console.log('[useEmployeesREST] Employee created via broadcast:', data);
-      setEmployees(prev => [...prev, data]);
+      // Refresh the list to get updated data
+      fetchEmployeesWithStats();
     };
 
     const handleEmployeeUpdated = (data: Employee) => {
       console.log('[useEmployeesREST] Employee updated via broadcast:', data);
+      // Update the employee in the list
       setEmployees(prev =>
         prev.map(emp => (emp._id === data._id ? { ...emp, ...data } : emp))
       );
     };
 
-    const handleEmployeeDeleted = (data: { _id: string }) => {
+    const handleEmployeeDeleted = (data: { _id: string; employeeId: string }) => {
       console.log('[useEmployeesREST] Employee deleted via broadcast:', data);
+      // Remove from list
       setEmployees(prev => prev.filter(emp => emp._id !== data._id));
     };
 
+    // Listen for Socket.IO broadcast events
     socket.on('employee:created', handleEmployeeCreated);
     socket.on('employee:updated', handleEmployeeUpdated);
     socket.on('employee:deleted', handleEmployeeDeleted);
@@ -234,7 +844,21 @@ export const useEmployeesREST = () => {
       socket.off('employee:updated', handleEmployeeUpdated);
       socket.off('employee:deleted', handleEmployeeDeleted);
     };
-  }, [socket]);
+  }, [socket, fetchEmployeesWithStats]);
+
+  // Initial data fetch - wait for auth token
+  // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
+  useEffect(() => {
+    const token = getAuthToken();
+
+    // Guard: Don't fetch until token is available
+    if (!token) {
+      console.log('[useEmployeesREST] Waiting for auth token', { hasToken: !!token });
+      return;
+    }
+
+    fetchEmployeesWithStats();
+  }, []);
 
   return {
     employees,
@@ -242,13 +866,25 @@ export const useEmployeesREST = () => {
     loading,
     error,
     fetchEmployees,
+    fetchEmployeesWithStats,
     fetchStats,
     getEmployeeById,
+    getEmployeeDetails,
     createEmployee,
     updateEmployee,
+    updatePermissions,
+    updatePersonalInfo,
+    updateBankDetails,
+    updateFamilyInfo,
+    updateEducationInfo,
+    updateEmergencyContacts,
+    updateExperienceInfo,
+    updateAboutInfo,
     deleteEmployee,
     searchEmployees,
-    getDepartmentStats
+    getDepartmentStats,
+    checkDuplicates,
+    checkLifecycleStatus
   };
 };
 

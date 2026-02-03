@@ -15,6 +15,10 @@ import Footer from "../../../core/common/footer";
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
 import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
+// REST API Hooks for HRM operations
+import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
+import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
+import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
 
 import dayjs from 'dayjs';
 import type { Dayjs } from 'dayjs';
@@ -383,7 +387,7 @@ const EmployeeDetails = () => {
     // Handle permissions update
     const handlePermissionUpdateSubmit = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        if (!socket || !employee) return;
+        if (!employee) return;
         try {
             setLoading(true);
             const payload = {
@@ -391,8 +395,15 @@ const EmployeeDetails = () => {
                 permissions: permissions.permissions,
                 enabledModules: permissions.enabledModules,
             };
-            socket.emit("hrm/employees/update-permissions", payload);
-            toast.success("Employee permissions update request sent.");
+            const success = await employeesREST.updatePermissions(payload);
+            if (success) {
+                toast.success("Permissions updated successfully!");
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+            }
         } catch (error) {
             toast.error("Failed to update permissions");
             console.error("Permissions update error:", error);
@@ -463,11 +474,11 @@ const EmployeeDetails = () => {
     };
 
     // Handle bank form validation and submission
-    const handleBankFormSubmit = (e: React.FormEvent) => {
+    const handleBankFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        
+
         // Validate all fields are filled
-        if (!bankFormData.bankName || !bankFormData.accountNumber || 
+        if (!bankFormData.bankName || !bankFormData.accountNumber ||
             !bankFormData.ifscCode || !bankFormData.branch) {
             toast.error("All bank details fields are required!", {
                 position: "top-right",
@@ -476,7 +487,7 @@ const EmployeeDetails = () => {
             return;
         }
 
-        if (!socket || !employee) {
+        if (!employee) {
             toast.error("Cannot save bank details at this time.", {
                 position: "top-right",
                 autoClose: 3000,
@@ -484,26 +495,34 @@ const EmployeeDetails = () => {
             return;
         }
 
-        // Submit bank details to backend
-        const payload = {
-            employeeId: employee.employeeId,
-            bank: {
-                ...bankFormData,
-                accountHolderName: `${employee.firstName} ${employee.lastName}`
-            }
+        // Submit bank details to backend using REST API
+        const bankData = {
+            ...bankFormData,
+            accountHolderName: `${employee.firstName} ${employee.lastName}`
         };
-        socket.emit("hrm/employees/update-bank", payload);
-        
-        console.log("Socket event emitted successfully");
-        
-        toast.success("Bank details update request sent!", {
-            position: "top-right",
-            autoClose: 3000,
-        });
-        
-        // Close modal programmatically
-        const closeButton = document.querySelector('#edit_bank [data-bs-dismiss="modal"]') as HTMLButtonElement;
-        if (closeButton) closeButton.click();
+
+        try {
+            const success = await employeesREST.updateBankDetails(employee.employeeId, bankData);
+            if (success) {
+                toast.success("Bank details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Close modal programmatically
+                const closeButton = document.querySelector('#edit_bank [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                if (closeButton) closeButton.click();
+            }
+        } catch (error) {
+            toast.error("Failed to update bank details.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
     const  resetBankForm = () => {
         setBankFormData({
@@ -515,42 +534,53 @@ const EmployeeDetails = () => {
     };
 
     // handle education form validation and submission
-    const handleEducationFormSubmit = (e: React.FormEvent) => {
+    const handleEducationFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // console.log("dateeeeddd",educationFormData.startDate);
-        // return;
         if(!educationFormData.institution || !educationFormData.course || !educationFormData.startDate || !educationFormData.endDate) {
-            toast.error("All education details fields are required!", { 
+            toast.error("All education details fields are required!", {
                 position: "top-right",
                 autoClose: 3000,
             });
             return;
         }
 
-        if(!socket || !employee) {
+        if(!employee) {
             toast.error("Cannot save education details at this time.", {
                 position: "top-right",
                 autoClose: 3000,
             });
             return;
         }
-        const payload = {
-            employeeId: employee.employeeId,
-            educationDetails: {
-                institution: educationFormData.institution,
-                course: educationFormData.course,
-                startDate: educationFormData.startDate ? educationFormData.startDate.toISOString() : "",
-                endDate: educationFormData.endDate ? educationFormData.endDate.toISOString() : ""
-            }
+
+        const educationData = {
+            institution: educationFormData.institution,
+            course: educationFormData.course,
+            startDate: educationFormData.startDate ? educationFormData.startDate.toISOString() : "",
+            endDate: educationFormData.endDate ? educationFormData.endDate.toISOString() : ""
         };
-        socket.emit("hrm/employees/update-education", payload);
-        toast.success("Education details update request sent!", {
-            position: "top-right",
-            autoClose: 3000,
-        });
-        // Close modal programmatically
-        const closeButton = document.querySelector('#edit_education [data-bs-dismiss="modal"]') as HTMLButtonElement;
-        if (closeButton) closeButton.click();
+
+        try {
+            const success = await employeesREST.updateEducationInfo(employee.employeeId, educationData);
+            if (success) {
+                toast.success("Education details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Close modal programmatically
+                const closeButton = document.querySelector('#edit_education [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                if (closeButton) closeButton.click();
+            }
+        } catch (error) {
+            toast.error("Failed to update education details.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
 
     const resetEducationForm = () => {
@@ -563,7 +593,7 @@ const EmployeeDetails = () => {
     };
 
     // handleFamily form validation and submission
-    const handleFamilyFormSubmit = (e: React.FormEvent) => {
+    const handleFamilyFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         // Validate all fields are filled
         if (!familyFormData.familyMemberName || !familyFormData.relationship || !familyFormData.phone) {
@@ -575,31 +605,41 @@ const EmployeeDetails = () => {
             return;
         }
 
-        if (!socket || !employee) {
-            toast.error("Cannot save bank details at this time.", {
+        if (!employee) {
+            toast.error("Cannot save family details at this time.", {
                 position: "top-right",
                 autoClose: 3000,
             });
             return;
         }
 
-        // Submit bank details to backend
-        const payload = {
-            employeeId: employee.employeeId,
-            family: {
-                ...familyFormData
-            }
+        // Submit family details to backend using REST API
+        const familyData = {
+            ...familyFormData
         };
-        socket.emit("hrm/employees/update-family", payload);
-        
-        toast.success("Family details update request sent!", {
-            position: "top-right",
-            autoClose: 3000,
-        });
-        
-        // Close modal programmatically
-        const closeButton = document.querySelector('#edit_family [data-bs-dismiss="modal"]') as HTMLButtonElement;
-        if (closeButton) closeButton.click();
+
+        try {
+            const success = await employeesREST.updateFamilyInfo(employee.employeeId, familyData);
+            if (success) {
+                toast.success("Family details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Close modal programmatically
+                const closeButton = document.querySelector('#edit_family [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                if (closeButton) closeButton.click();
+            }
+        } catch (error) {
+            toast.error("Failed to update family details.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
 
     const resetFamilyForm = () => {
@@ -611,16 +651,11 @@ const EmployeeDetails = () => {
     };
 
     // Handle personal info form validation and submission
-    const handlePersonalFormSubmit = (e: React.FormEvent) => {
+    const handlePersonalFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        
-        // console.log("=== PERSONAL FORM SUBMIT STARTED ===");
-        // console.log("personalFormData:", personalFormData);
-        // console.log("employee:", employee);
-        console.log("socket:", socket);
-        
+
         // Validate required fields
-        if (!personalFormData.passportNo || !personalFormData.passportExpiryDate || 
+        if (!personalFormData.passportNo || !personalFormData.passportExpiryDate ||
             !personalFormData.nationality || !personalFormData.religion || personalFormData.maritalStatus === "Select") {
             console.log("Validation failed - missing required fields");
             toast.error("Please fill all required fields!", {
@@ -630,8 +665,7 @@ const EmployeeDetails = () => {
             return;
         }
 
-        if (!socket || !employee) {
-            // console.log("Socket or employee not available");
+        if (!employee) {
             toast.error("Cannot save personal details at this time.", {
                 position: "top-right",
                 autoClose: 3000,
@@ -639,33 +673,41 @@ const EmployeeDetails = () => {
             return;
         }
 
-        // Submit personal details to backend
-        const payload = {
-            employeeId: employee.employeeId,
-            personal: {
-                passport: {
-                    number: personalFormData.passportNo,
-                    expiryDate: personalFormData.passportExpiryDate ? dayjs(personalFormData.passportExpiryDate).toISOString() : "",
-                    country: personalFormData.nationality
-                },
-                religion: personalFormData.religion,
-                maritalStatus: personalFormData.maritalStatus,
-                employmentOfSpouse: personalFormData.maritalStatus === "Yes" ? personalFormData.employmentOfSpouse : "",
-                noOfChildren: personalFormData.maritalStatus === "Yes" ? personalFormData.noOfChildren : 0
-            }
+        // Submit personal details to backend using REST API
+        const personalData = {
+            passport: {
+                number: personalFormData.passportNo,
+                expiryDate: personalFormData.passportExpiryDate ? dayjs(personalFormData.passportExpiryDate).toISOString() : "",
+                country: personalFormData.nationality
+            },
+            religion: personalFormData.religion,
+            maritalStatus: personalFormData.maritalStatus,
+            employmentOfSpouse: personalFormData.maritalStatus === "Yes" ? personalFormData.employmentOfSpouse : "",
+            noOfChildren: personalFormData.maritalStatus === "Yes" ? personalFormData.noOfChildren : 0
         };
-        
-        
-        socket.emit("hrm/employees/update-personal", payload);
-        
-        toast.success("Personal details update request sent!", {
-            position: "top-right",
-            autoClose: 3000,
-        });
-        
-        // Close modal programmatically
-        const closeButton = document.querySelector('#edit_personal [data-bs-dismiss="modal"]') as HTMLButtonElement;
-        if (closeButton) closeButton.click();
+
+        try {
+            const success = await employeesREST.updatePersonalInfo(employee.employeeId, personalData);
+            if (success) {
+                toast.success("Personal details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Close modal programmatically
+                const closeButton = document.querySelector('#edit_personal [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                if (closeButton) closeButton.click();
+            }
+        } catch (error) {
+            toast.error("Failed to update personal details.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
     const resetPersonalForm = () => {
         setPersonalFormData({
@@ -679,7 +721,7 @@ const EmployeeDetails = () => {
         });
     };
     // handleEmergency form validation and submission
-    const handleEmergencyFormSubmit = (e: React.FormEvent) => {
+    const handleEmergencyFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         // 1. Validate required fields
@@ -694,7 +736,7 @@ const EmployeeDetails = () => {
 
         console.log("Validation passed");
 
-        if (!socket || !employee) {
+        if (!employee) {
             toast.error("Cannot save emergency contact at this time.", {
                 position: "top-right",
                 autoClose: 3000,
@@ -708,30 +750,39 @@ const EmployeeDetails = () => {
             phones.push(emergencyFormData.phone2);
         }
 
-        const payload = {
-            employeeId: employee.employeeId,
-            emergencyContacts: [{
-                name: emergencyFormData.name,
-                relationship: emergencyFormData.relationship,
-                phone: phones
-            }]
-        };
+        const emergencyContacts = [{
+            name: emergencyFormData.name,
+            relationship: emergencyFormData.relationship,
+            phone: phones
+        }];
 
-        socket.emit("hrm/employees/update-emergency", payload);
+        try {
+            const success = await employeesREST.updateEmergencyContacts(employee.employeeId, emergencyContacts);
+            if (success) {
+                toast.success("Emergency contact updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Close modal ONLY after everything passes
+                const closeButton = document.querySelector(
+                    '#edit_emergency [data-bs-dismiss="modal"]'
+                ) as HTMLButtonElement | null;
 
-        // toast.success("Emergency contact update request sent!", {
-        //     position: "top-right",
-        //     autoClose: 3000,
-        // });
-
-        // 3. Close modal ONLY after everything passes
-        const closeButton = document.querySelector(
-            '#edit_emergency [data-bs-dismiss="modal"]'
-        ) as HTMLButtonElement | null;
-
-        if (closeButton){
-            closeButton.click();
-        } 
+                if (closeButton){
+                    closeButton.click();
+                }
+            }
+        } catch (error) {
+            toast.error("Failed to update emergency contact.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
     
     const resetEmergencyModel = () => {
@@ -744,32 +795,43 @@ const EmployeeDetails = () => {
     };
 
     // Handle experience form validation and submission
-    const handleExperienceFormSubmit = (e: React.FormEvent) => {
+    const handleExperienceFormSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        if(!socket || !employee) {
+        if(!employee) {
             toast.error("Cannot save experience details at this time.", {
                 position: "top-right",
                 autoClose: 3000,
             });
             return;
         }
-        const payload = {
-            employeeId: employee.employeeId,
-            experienceDetails: {
-                companyName: experienceFormData.company,
-                designation: experienceFormData.designation,
-                startDate: experienceFormData.startDate,
-                endDate: experienceFormData.endDate
-            }
+        const experienceData = {
+            companyName: experienceFormData.company,
+            designation: experienceFormData.designation,
+            startDate: experienceFormData.startDate,
+            endDate: experienceFormData.endDate
         };
-        socket.emit("hrm/employees/update-experience", payload);
-        toast.success("Experience details add request sent!", {
-            position: "top-right",
-            autoClose: 3000,
-        });
-        // Close modal programmatically
-        const closeButton = document.querySelector('#add_experience [data-bs-dismiss="modal"]') as HTMLButtonElement;
-        if (closeButton) closeButton.click();
+        try {
+            const success = await employeesREST.updateExperienceInfo(employee.employeeId, experienceData);
+            if (success) {
+                toast.success("Experience details updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Close modal programmatically
+                const closeButton = document.querySelector('#add_experience [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                if (closeButton) closeButton.click();
+            }
+        } catch (error) {
+            toast.error("Failed to update experience details.", {
+                position: "top-right",
+                autoClose: 3000,
+            });
+        }
     };
 
     const resetExperienceForm = () => {
@@ -781,7 +843,7 @@ const EmployeeDetails = () => {
         });
     };
 
-    const handleAboutSubmit = (e: React.FormEvent) => {
+    const handleAboutSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
         // Validate about field
         if (!aboutFormData.about || aboutFormData.about.trim() === "") {
@@ -791,7 +853,7 @@ const EmployeeDetails = () => {
             });
             return;
         }
-        if (!socket || !employee) {
+        if (!employee) {
             toast.error("Cannot update about at this time.", {
                 position: "top-right",
                 autoClose: 3000,
@@ -800,18 +862,21 @@ const EmployeeDetails = () => {
         }
         try {
             setLoading(true);
-            const payload = {
-                employeeId: employee.employeeId,
-                about: aboutFormData.about,
-            };
-            socket.emit("hrm/employees/update-about", payload);
-            toast.success("Employee about update request sent!", {
-                position: "top-right",
-                autoClose: 3000,
-            });
-            // Optionally close modal if present
-            const closeButton = document.querySelector('#edit_about [data-bs-dismiss="modal"]') as HTMLButtonElement;
-            if (closeButton) closeButton.click();
+            const success = await employeesREST.updateAboutInfo(employee.employeeId, aboutFormData.about);
+            if (success) {
+                toast.success("About information updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(employee.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+                // Optionally close modal if present
+                const closeButton = document.querySelector('#edit_about [data-bs-dismiss="modal"]') as HTMLButtonElement;
+                if (closeButton) closeButton.click();
+            }
         } catch (error) {
             toast.error("Failed to update about", {
                 position: "top-right",
@@ -957,6 +1022,12 @@ const EmployeeDetails = () => {
     const [loading, setLoading] = useState(true);
     const [employee, setEmployee] = useState<Employee | null>(null);
     const socket = useSocket() as Socket | null;
+
+    // REST API Hooks for HRM operations
+    const employeesREST = useEmployeesREST();
+    const departmentsREST = useDepartmentsREST();
+    const designationsREST = useDesignationsREST();
+
     const [passwordVisibility, setPasswordVisibility] = useState({
         password: false,
         confirmPassword: false,
@@ -1095,15 +1166,15 @@ const EmployeeDetails = () => {
 
     const handleEditSubmit = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
-        if (!editFormData || !socket) {
+        if (!editFormData) {
             toast.error("No employee data available for editing.");
             return;
         }
-        
+
         // Lifecycle statuses that should only be set through HR workflows
         const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
         const currentStatus = editFormData.status || "Active";
-        
+
         const payload: any = {
             employeeId: editFormData.employeeId || "",
             firstName: editFormData.firstName || "",
@@ -1133,7 +1204,7 @@ const EmployeeDetails = () => {
             about: editFormData.about || "",
             avatarUrl: editFormData.avatarUrl || "",
         };
-        
+
         // Only include status if it's NOT a lifecycle status
         // Lifecycle statuses should only be set through termination/resignation workflows
         if (!lifecycleStatuses.includes(currentStatus)) {
@@ -1141,11 +1212,18 @@ const EmployeeDetails = () => {
         }
 
         try {
-            socket.emit("hrm/employees/update", payload);
-            toast.success("Employee update request sent.", {
-                position: "top-right",
-                autoClose: 3000,
-            });
+            const success = await employeesREST.updateEmployee(payload.employeeId, payload);
+            if (success) {
+                toast.success("Employee updated successfully!", {
+                    position: "top-right",
+                    autoClose: 3000,
+                });
+                // Refresh employee details
+                const updatedEmployee = await employeesREST.getEmployeeDetails(payload.employeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
+                }
+            }
         } catch (error) {
             toast.error("Failed to update employee.", {
                 position: "top-right",
@@ -1154,28 +1232,8 @@ const EmployeeDetails = () => {
         }
     };
 
-    const handleDepartmentResponse = (response: any) => {
-        if (response.done && Array.isArray(response.data)) {
-            const mappedDepartments = response.data.map((d: any) => ({
-                value: d._id,
-                label: d.department,
-            }));
-            setDepartment([{ value: "", label: "Select" }, ...mappedDepartments]);
-        }
-    };
-
-    const handleDesignationResponse = (response: any) => {
-        if (response.done && Array.isArray(response.data)) {
-            const mappedDesignations = response.data.map((d: any) => ({
-                value: d._id,
-                label: d.designation,
-            }));
-            setDesignation([{ value: "", label: "Select" }, ...mappedDesignations]);
-        }
-    };
-
     useEffect(() => {
-        if (!socket || !employeeId) return;
+        if (!employeeId) return;
 
         let isMounted = true;
         setLoading(true);
@@ -1188,192 +1246,70 @@ const EmployeeDetails = () => {
             }
         }, 30000);
 
-        const payload = {
-            employeeId: employeeId,
+        // Fetch employee details using REST API
+        const fetchEmployeeDetails = async () => {
+            if (!employeeId) return;
+            try {
+                const data = await employeesREST.getEmployeeDetails(employeeId);
+                if (data && isMounted) {
+                    setEmployee(data as any);
+                    setError(null);
+                    setLoading(false);
+                } else if (isMounted) {
+                    setError("Failed to fetch employee details");
+                    setLoading(false);
+                }
+            } catch (err: any) {
+                if (isMounted) {
+                    console.error("Error fetching employee details:", err);
+                    setError(err.message || "Failed to fetch details");
+                    setLoading(false);
+                }
+            }
+        };
+
+        // Fetch departments using REST API
+        const fetchDepartments = async () => {
+            try {
+                await departmentsREST.fetchDepartments();
+            } catch (err) {
+                console.error("Error fetching departments:", err);
+            }
+        };
+
+        // Fetch designations using REST API
+        const fetchDesignations = async () => {
+            try {
+                await designationsREST.fetchDesignations();
+            } catch (err) {
+                console.error("Error fetching designations:", err);
+            }
+        };
+
+        fetchEmployeeDetails();
+        fetchDepartments();
+        fetchDesignations();
+
+        // Fetch policies (still using Socket.IO)
+        if (socket) {
+            setPoliciesLoading(true);
+            socket.emit("hr/policy/get");
+
+            // Fetch promotions for this employee (still using Socket.IO)
+            setPromotionsLoading(true);
+            console.log('[EmployeeDetails] Emitting promotion:getAll');
+            socket.emit("promotion:getAll", {});
+
+            // Fetch resignations for this employee (still using Socket.IO)
+            setResignationsLoading(true);
+            console.log('[EmployeeDetails] Emitting hr/resignation/resignationlist');
+            socket.emit("hr/resignation/resignationlist", { type: "alltime" });
+
+            // Fetch terminations for this employee (still using Socket.IO)
+            setTerminationsLoading(true);
+            console.log('[EmployeeDetails] Emitting hr/termination/terminationlist');
+            socket.emit("hr/termination/terminationlist", { type: "alltime" });
         }
-        socket.emit("hrm/employees/get-details", payload);
-
-        // Fetch policies
-        setPoliciesLoading(true);
-        socket.emit("hr/policy/get");
-        
-        // Fetch departments for Edit Employee modal
-        socket.emit("hr/departments/get");
-
-        // Fetch promotions for this employee
-        setPromotionsLoading(true);
-        console.log('[EmployeeDetails] Emitting promotion:getAll');
-        socket.emit("promotion:getAll", {});
-
-        // Fetch resignations for this employee
-        setResignationsLoading(true);
-        console.log('[EmployeeDetails] Emitting hr/resignation/resignationlist');
-        socket.emit("hr/resignation/resignationlist", { type: "alltime" });
-
-        // Fetch terminations for this employee
-        setTerminationsLoading(true);
-        console.log('[EmployeeDetails] Emitting hr/termination/terminationlist');
-        socket.emit("hr/termination/terminationlist", { type: "alltime" });
-
-        const handleDetailsResponse = (response: any) => {
-            if (!isMounted) return;
-
-            if (response.done) {
-                setEmployee(response.data);
-                setError(null);
-                setLoading(false);
-            } else {
-                console.log(error);
-                setError(response.error || "Failed to fetch details");
-                setLoading(false);
-            }
-        };
-        
-        const handleUpdateEmployeeResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Employee updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-                setError(null);
-            } else {
-                toast.error(response.error || "Failed to update employee.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                setError(response.error || "Failed to update employee.");
-            }
-        };
-        
-        const handleBankUpdateResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Bank details updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            } else {
-                toast.error(response.error || "Failed to update bank details.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
-        
-        const handlePersonalUpdateResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Personal details updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            } else {
-                toast.error(response.error || "Failed to update personal details.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
-
-        const handleFamilyUpdateResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Family details updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            } else {
-                toast.error(response.error || "Failed to update personal details.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
-        const handleEducataionUpdateResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Education details updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            }
-            else {
-                toast.error(response.error || "Failed to update education details.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
-
-        const handleEmergencyUpdateResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Emergency contact updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            } else {
-                toast.error(response.error || "Failed to update emergency contact.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
-        const handleExperienceResponse = (response: any) => {
-            if (response.done) {
-                toast.success("Experience details added successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            } else {
-                toast.error(response.error || "Failed to add experience details.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
-
-        const handleAboutResponse = (response: any) => {
-            if (response.done) {
-                toast.success("About information updated successfully!", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-                // Refresh employee details
-                if (socket) {
-                    socket.emit("hrm/employees/get-details", { employeeId: employeeId });
-                }
-            } else {
-                toast.error(response.error || "Failed to update about information.", {
-                    position: "top-right",
-                    autoClose: 3000,
-                });
-            }
-        };
 
         const handleGetPolicyResponse = (response: any) => {
             setPoliciesLoading(false);
@@ -1403,25 +1339,35 @@ const EmployeeDetails = () => {
         };
 
         // Handle promotion create/update to refresh the list automatically
-        const handlePromotionCreateResponse = (response: any) => {
+        const handlePromotionCreateResponse = async (response: any) => {
             if (!isMounted) return;
-            
+
             if (response.done) {
                 // Refresh promotions list to show the new promotion
                 socket.emit("promotion:getAll", {});
                 // Also refresh employee details as they might have changed
-                socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                if (employeeId) {
+                    const updatedEmployee = await employeesREST.getEmployeeDetails(employeeId);
+                    if (updatedEmployee && isMounted) {
+                        setEmployee(updatedEmployee as any);
+                    }
+                }
             }
         };
 
-        const handlePromotionUpdateResponse = (response: any) => {
+        const handlePromotionUpdateResponse = async (response: any) => {
             if (!isMounted) return;
-            
+
             if (response.done) {
                 // Refresh promotions list to show updated promotion
                 socket.emit("promotion:getAll", {});
                 // Also refresh employee details as they might have changed
-                socket.emit("hrm/employees/get-details", { employeeId: employeeId });
+                if (employeeId) {
+                    const updatedEmployee = await employeesREST.getEmployeeDetails(employeeId);
+                    if (updatedEmployee && isMounted) {
+                        setEmployee(updatedEmployee as any);
+                    }
+                }
             }
         };
 
@@ -1455,18 +1401,7 @@ const EmployeeDetails = () => {
             }
         };
 
-        socket.on("hrm/employees/get-details-response", handleDetailsResponse);
-        socket.on("hrm/employees/update-response", handleUpdateEmployeeResponse);
-        socket.on("hrm/employees/update-bank-response", handleBankUpdateResponse);
-        socket.on("hrm/employees/update-personal-response", handlePersonalUpdateResponse);
-        socket.on("hrm/employees/update-family-response", handleFamilyUpdateResponse);
-        socket.on("hrm/employees/update-education-response", handleEducataionUpdateResponse);
-        socket.on("hrm/employees/update-emergency-response", handleEmergencyUpdateResponse);
-        socket.on("hrm/employees/update-experience-response", handleExperienceResponse);
-        socket.on("hrm/employees/update-about-response", handleAboutResponse);
         socket.on("hr/policy/get-response", handleGetPolicyResponse);
-        socket.on("hr/departments/get-response", handleDepartmentResponse);
-        socket.on("hrm/designations/get-response", handleDesignationResponse);
         socket.on("promotion:getAll:response", handleGetPromotionsResponse);
         socket.on("promotion:create:response", handlePromotionCreateResponse);
         socket.on("promotion:update:response", handlePromotionUpdateResponse);
@@ -1474,18 +1409,7 @@ const EmployeeDetails = () => {
         socket.on("hr/termination/terminationlist-response", handleGetTerminationsResponse);
 
         return () => {
-            socket.off("hrm/employees/get-details-response", handleDetailsResponse);
-            socket.off("hrm/employees/update-response", handleUpdateEmployeeResponse);
-            socket.off("hrm/employees/update-bank-response", handleBankUpdateResponse);
-            socket.off("hrm/employees/update-personal-response", handlePersonalUpdateResponse);
-            socket.off("hrm/employees/update-family-response", handleFamilyUpdateResponse);
-            socket.off("hrm/employees/update-education-response", handleEducataionUpdateResponse);
-            socket.off("hrm/employees/update-emergency-response", handleEmergencyUpdateResponse);
-            socket.off("hrm/employees/update-experience-response", handleExperienceResponse);
-            socket.off("hrm/employees/update-about-response", handleAboutResponse);
             socket.off("hr/policy/get-response", handleGetPolicyResponse);
-            socket.off("hr/departments/get-response", handleDepartmentResponse);
-            socket.off("hrm/designations/get-response", handleDesignationResponse);
             socket.off("promotion:getAll:response", handleGetPromotionsResponse);
             socket.off("promotion:create:response", handlePromotionCreateResponse);
             socket.off("promotion:update:response", handlePromotionUpdateResponse);
@@ -1494,8 +1418,30 @@ const EmployeeDetails = () => {
             isMounted = false;
             clearTimeout(timeoutId);
         };
-       
-    }, [socket, employeeId]);
+
+    }, [socket, employeeId, employeesREST, departmentsREST, designationsREST]);
+
+    // Sync departments from REST hook to local state
+    useEffect(() => {
+        if (departmentsREST.departments.length > 0) {
+            const mappedDepartments = departmentsREST.departments.map((d: any) => ({
+                value: d._id,
+                label: d.department,
+            }));
+            setDepartment([{ value: "", label: "Select" }, ...mappedDepartments]);
+        }
+    }, [departmentsREST.departments]);
+
+    // Sync designations from REST hook to local state
+    useEffect(() => {
+        if (designationsREST.designations.length > 0) {
+            const mappedDesignations = designationsREST.designations.map((d: any) => ({
+                value: d._id,
+                label: d.designation,
+            }));
+            setDesignation([{ value: "", label: "Select" }, ...mappedDesignations]);
+        }
+    }, [designationsREST.designations]);
 
     // Filter policies that apply to the current employee
     const getApplicablePolicies = (): Policy[] => {

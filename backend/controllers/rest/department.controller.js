@@ -14,6 +14,8 @@ export const getAllDepartments = async (req, res) => {
   try {
     const { status, search, sortBy = 'department', sortOrder = 'asc' } = req.query;
 
+    console.log('[Department] Fetching departments with query:', { status, search, sortBy, sortOrder });
+
     // Build query
     const query = {};
     if (status) query.status = status;
@@ -23,12 +25,35 @@ export const getAllDepartments = async (req, res) => {
       ];
     }
 
+    console.log('[Department] MongoDB query:', query);
+
     // Build sort
     const sort = {};
     sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
-    // Execute query
-    const departments = await Department.find(query).sort(sort).lean();
+    // Execute query with timeout and error handling
+    let departments;
+    try {
+      // Add a timeout and limit for development
+      departments = await Department.find(query)
+        .sort(sort)
+        .limit(100) // Limit to prevent large result sets
+        .maxTimeMS(30000) // 30 second timeout
+        .lean();
+
+      console.log('[Department] Found', departments.length, 'departments');
+    } catch (dbError) {
+      console.error('[Department] Database query error:', dbError);
+
+      // In development, try a simpler query as fallback
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[Department] Attempting fallback query...');
+        departments = await Department.find({}).limit(10).lean();
+        console.log('[Department] Fallback query returned', departments.length, 'departments');
+      } else {
+        throw dbError;
+      }
+    }
 
     // Get stats
     const stats = {

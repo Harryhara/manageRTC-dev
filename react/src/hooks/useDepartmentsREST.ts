@@ -7,7 +7,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { useSocket } from '../SocketContext';
 import { message } from 'antd';
-import { get, post, put, del, buildParams, ApiResponse } from '../services/api';
+import { get, post, put, del, buildParams, ApiResponse, getAuthToken } from '../services/api';
 
 export interface Department {
   _id: string;
@@ -52,6 +52,16 @@ export const useDepartmentsREST = () => {
    * REST API: GET /api/departments
    */
   const fetchDepartments = useCallback(async (filters: DepartmentFilters = {}) => {
+    // Guard: Check for auth token before making request
+    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
+    const token = getAuthToken();
+
+    if (!token) {
+      console.log('[useDepartmentsREST] Cannot fetch - missing auth token', { hasToken: !!token });
+      setError('Authentication required. Please ensure you are logged in.');
+      return [];
+    }
+
     setLoading(true);
     setError(null);
     try {
@@ -79,6 +89,7 @@ export const useDepartmentsREST = () => {
       const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to fetch departments';
       setError(errorMessage);
       message.error(errorMessage);
+      return [];
     } finally {
       setLoading(false);
     }

@@ -16,6 +16,10 @@ import { toast, ToastContainer } from "react-toastify";
 import dayjs from "dayjs";
 import Footer from "../../../core/common/footer";
 import { useUser } from "@clerk/clerk-react";
+// REST API Hooks for HRM operations
+import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
+import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
+import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
 
 interface Department {
   _id: string;
@@ -332,6 +336,25 @@ const EmployeeList = () => {
   // View state - 'list' or 'grid'
   const [viewMode, setViewMode] = useState<"list" | "grid">("list");
 
+  // REST API Hooks for HRM operations
+  const {
+    employees: restEmployees,
+    stats: restStats,
+    loading: restLoading,
+    error: restError,
+    fetchEmployeesWithStats,
+    createEmployee,
+    updateEmployee,
+    deleteEmployee: deleteEmployeeREST,
+    updatePermissions,
+    updatePersonalInfo,
+    checkDuplicates: checkDuplicatesREST,
+    checkLifecycleStatus: checkLifecycleStatusREST
+  } = useEmployeesREST();
+
+  const { departments, fetchDepartments } = useDepartmentsREST();
+  const { designations, fetchDesignations } = useDesignationsREST();
+
   const [formData, setFormData] = useState({
     employeeId: generateId("EMP"),
     avatarUrl: "",
@@ -373,369 +396,188 @@ const EmployeeList = () => {
 
   const socket = useSocket() as Socket | null;
 
+  // Initial data fetching with REST API
+  useEffect(() => {
+    const loadInitialData = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        // Fetch employees with stats
+        await fetchEmployeesWithStats();
+
+        // Fetch departments
+        await fetchDepartments();
+        // Departments will be synced via useEffect below
+
+        // Designations will be loaded when a department is selected
+      } catch (err: any) {
+        console.error("Error loading initial data:", err);
+        setError(err.message || "Failed to load initial data");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchEmployeesWithStats, fetchDepartments]);
+
+  // Sync departments from REST hook to local state
+  useEffect(() => {
+    if (departments && departments.length > 0) {
+      const mappedDepartments = departments.map((d: Department) => ({
+        value: d._id,
+        label: d.department,
+      }));
+      setDepartment([{ value: "", label: "Select" }, ...mappedDepartments]);
+    }
+  }, [departments]);
+
+  // Sync REST hook data with local state
+  useEffect(() => {
+    if (restEmployees.length > 0) {
+      // Normalize status for all employees
+      const normalizedEmployees = restEmployees.map((emp: any) => ({
+        ...emp,
+        status: normalizeStatus(emp.status)
+      }));
+      setEmployees(normalizedEmployees);
+    }
+  }, [restEmployees]);
+
+  useEffect(() => {
+    if (restStats) {
+      setStats(restStats);
+    }
+  }, [restStats]);
+
+  useEffect(() => {
+    if (restError) {
+      setError(restError);
+    }
+  }, [restError]);
+
+  // Socket.IO listeners for real-time broadcast notifications only
   useEffect(() => {
     if (!socket) return;
 
-    let isMounted = true;
-
-    setLoading(true);
-
-    const timeoutId = setTimeout(() => {
-      if (loading && isMounted) {
-        console.warn("Employees loading timeout - showing fallback");
-        setError("Employees loading timed out. Please refresh the page.");
-        setLoading(false);
-      }
-    }, 30000);
-
-    // Fetch employee data (works for both list and grid views)
-    socket.emit("hrm/employees/get-employee-stats");
-    socket.emit("hr/departments/get");
-    // Designations will be loaded when a department is selected
-
-    const handleAddEmployeeResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setFieldErrors({});
-        setLoading(false);
-
-        // Close the add employee modal
-        if (addEmployeeModalRef.current) {
-          addEmployeeModalRef.current.click();
-          // Clean up backdrop
-          setTimeout(() => closeModal(), 100);
-        }
-
-        // Store the newly added employee data
-        if (response.data && response.data.employee) {
-          setNewlyAddedEmployee(response.data.employee);
-        } else if (response.data) {
-          // If the response structure is different, try to use the whole data
-          setNewlyAddedEmployee(response.data);
-        }
-
-        // Show success modal with navigation options
-        setTimeout(() => {
-          if (successModalRef.current) {
-            successModalRef.current.click();
-            // Ensure previous modal backdrop is removed
-            closeModal();
-          }
-        }, 300);
-
-        // Refresh employee list
-        if (socket) {
-          socket.emit("hrm/employees/get-employee-stats");
-        }
-      } else {
-        setLoading(false);
-
-        // Parse error and set inline field error
-        const errorInfo = parseBackendError(
-          response.error || "Failed to add employee",
-        );
-        if (errorInfo) {
-          setFieldErrors({ [errorInfo.field]: errorInfo.message });
-
-          // If error is for a basic field, switch to basic info tab, reset validation, and scroll
-          const basicFields = [
-            "firstName",
-            "lastName",
-            "email",
-            "role",
-            "phone",
-            "departmentId",
-            "designationId",
-            "dateOfJoining",
-          ];
-          if (
-            basicFields.includes(errorInfo.field) ||
-            errorInfo.field === "general"
-          ) {
-            setActiveTab("basic-info");
-            setIsBasicInfoValidated(false); // Reset validation flag
-            setTimeout(() => {
-              const errorElement =
-                document.querySelector(`[name="${errorInfo.field}"]`) ||
-                document.querySelector(`#${errorInfo.field}`) ||
-                document.querySelector(".is-invalid");
-              if (errorElement) {
-                errorElement.scrollIntoView({
-                  behavior: "smooth",
-                  block: "center",
-                });
-                (errorElement as HTMLElement).focus?.();
-              }
-            }, 100);
-          }
-        } else {
-          setFieldErrors({
-            general: response.error || "Failed to add employee",
-          });
-        }
-
-        setError(response.error || "Failed to add employee");
-        // No toast - error shown inline only
-      }
+    const handleEmployeeCreated = (data: Employee) => {
+      console.log('[EmployeeList] Employee created via broadcast:', data);
+      // REST hook will handle the refresh, but we can also manually refresh
+      fetchEmployeesWithStats();
     };
 
-    const handleDesignationResponse = (response: any) => {
-      console.log("DESIGNatio");
-      if (!isMounted) return;
-
-      if (response.done && Array.isArray(response.data)) {
-        console.log("Designations response:", response);
-
-        // Map all designations from the response
-        const mappedDesignations = response.data.map((d: Designation) => ({
-          value: d._id,
-          label: d.designation,
-        }));
-
-        setDesignation([{ value: "", label: "Select" }, ...mappedDesignations]);
-
-        // If we're editing and the designation exists in the new list, keep it selected
-        if (editingEmployee?.designationId) {
-          const designationExists = response.data.some(
-            (d: Designation) => d._id === editingEmployee.designationId,
-          );
-          if (!designationExists) {
-            setSelectedDesignation("");
-            setEditingEmployee((prev) =>
-              prev ? { ...prev, designationId: "" } : prev,
-            );
-          }
-        }
-
-        setError(null);
-        setLoading(false);
-      } else {
-        setError(response.error || "Failed to get designations");
-        setLoading(false);
-      }
+    const handleEmployeeUpdated = (data: Employee) => {
+      console.log('[EmployeeList] Employee updated via broadcast:', data);
+      // Update the employee in the list
+      setEmployees(prev =>
+        prev.map(emp => (emp._id === data._id ? { ...emp, ...data, status: normalizeStatus(data.status) } : emp))
+      );
     };
 
-    const handleDepartmentResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done && Array.isArray(response.data)) {
-        const mappedDepartments = response.data.map((d: Department) => ({
-          value: d._id,
-          label: d.department,
-        }));
-        setDepartment([{ value: "", label: "Select" }, ...mappedDepartments]);
-        setError(null);
-        setLoading(false);
-      } else {
-        setError(response.error || "Failed to get departments");
-        setLoading(false);
-      }
+    const handleEmployeeDeleted = (data: { _id: string; employeeId: string }) => {
+      console.log('[EmployeeList] Employee deleted via broadcast:', data);
+      // Remove from list
+      setEmployees(prev => prev.filter(emp => emp._id !== data._id));
     };
 
-    const handleEmployeeResponse = (response: any) => {
-      if (!isMounted) return;
-      console.log("response hrm-employee", response);
-      if (response.done) {
-        console.log("response hrm-employee", response);
-        if (response.data.stats) {
-          setStats(response.data.stats);
-        }
-        if (Array.isArray(response.data.employees)) {
-          // Normalize status for all employees to ensure correct case
-          const normalizedEmployees = response.data.employees.map((emp: Employee) => {
-            console.log(`Employee ${emp.employeeId} - Raw status: "${emp.status}", Normalized: "${normalizeStatus(emp.status)}"`);
-            return {
-              ...emp,
-              status: normalizeStatus(emp.status)
-            };
-          });
-          setEmployees(normalizedEmployees);
-        }
-        setError(null);
-        setLoading(false);
-      } else {
-        setError(response.error || "Failed to fetch employees");
-        setLoading(false);
-      }
+    const handleDepartmentCreated = (data: Department) => {
+      console.log('[EmployeeList] Department created via broadcast:', data);
+      setDepartment(prev => [...prev, { value: data._id, label: data.department }]);
     };
 
-    const handleEmployeeDelete = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done) {
-        setResponseData(response.data);
-        setError(null);
-        setLoading(false);
-
-        toast.success("Employee deleted successfully!", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-
-        if (socket) {
-          socket.emit("hrm/employees/get-employee-stats");
-        }
-      } else {
-        setError(response.error || "Failed to delete employee");
-        setLoading(false);
-
-        toast.error(response.error || "Failed to delete employee", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-      }
+    const handleDepartmentUpdated = (data: Department) => {
+      console.log('[EmployeeList] Department updated via broadcast:', data);
+      setDepartment(prev =>
+        prev.map(dept => (dept.value === data._id ? { value: data._id, label: data.department } : dept))
+      );
     };
 
-    const handleUpdateEmployeeResponse = (response: any) => {
-      if (response.done) {
-        // Close the modal
-        if (editEmployeeModalRef.current) {
-          editEmployeeModalRef.current.click();
-          // Clean up backdrop
-          setTimeout(() => closeModal(), 100);
-        }
-
-        toast.success("Employee updated successfully!", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-
-        // Refresh employee list
-        if (socket) {
-          socket.emit("hrm/employees/get-employee-stats");
-        }
-        setEditingEmployee(null); // Close modal or reset editing state
-        setError(null);
-        setLoading(false);
-      } else {
-        toast.error(response.error || "Failed to update employee.", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-        setError(response.error || "Failed to update employee.");
-        setLoading(false);
-      }
+    const handleDepartmentDeleted = (data: { _id: string }) => {
+      console.log('[EmployeeList] Department deleted via broadcast:', data);
+      setDepartment(prev => prev.filter(dept => dept.value !== data._id));
     };
 
-    const handleUpdatePermissionResponse = (response: any) => {
-      if (response.done) {
-        // Close the modal on success
-        if (editEmployeeModalRef.current) {
-          editEmployeeModalRef.current.click();
-          setTimeout(() => closeModal(), 100);
-        }
-        
-        toast.success("Employee permissions updated successfully!", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-
-        // Refresh employee list or permissions
-        if (socket) {
-          socket.emit("hrm/employees/get-employee-stats");
-        }
-        setEditingEmployee(null); // Reset editing state
-        setError(null);
-        setLoading(false);
-      } else {
-        toast.error(response.error || "Failed to update permissions.", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-        setError(response.error || "Failed to update permissions.");
-        setLoading(false);
-      }
+    const handleDesignationCreated = (data: Designation) => {
+      console.log('[EmployeeList] Designation created via broadcast:', data);
+      // Add to filtered designations if it matches current department filter
+      setFilteredDesignations(prev => [...prev, { value: data._id, label: data.designation }]);
     };
 
-    const handleLifecycleStatusResponse = (response: any) => {
-      if (!isMounted) return;
-
-      if (response.done && response.data) {
-        setLifecycleStatus(response.data);
-
-        // Show warning if employee has lifecycle records
-        if (response.data.hasLifecycleRecord && response.data.message) {
-          toast.info(response.data.message, {
-            position: "top-right",
-            autoClose: 5000,
-          });
-        }
-      } else {
-        // Clear lifecycle status if check fails
-        setLifecycleStatus(null);
-      }
+    const handleDesignationUpdated = (data: Designation) => {
+      console.log('[EmployeeList] Designation updated via broadcast:', data);
+      setFilteredDesignations(prev =>
+        prev.map(desg => (desg.value === data._id ? { value: data._id, label: data.designation } : desg))
+      );
     };
 
-    socket.on("hrm/employees/add-response", handleAddEmployeeResponse);
-    socket.on("hrm/designations/get-response", handleDesignationResponse);
-    socket.on("hr/departments/get-response", handleDepartmentResponse);
-    socket.on(
-      "hrm/employees/get-employee-stats-response",
-      handleEmployeeResponse,
-    );
-    socket.on(
-      "hrm/employees/get-employee-grid-stats-response",
-      handleEmployeeResponse,
-    );
-    socket.on("hrm/employees/delete-response", handleEmployeeDelete);
-    socket.on("hrm/employees/update-response", handleUpdateEmployeeResponse);
-    socket.on(
-      "hrm/employees/update-permissions-response",
-      handleUpdatePermissionResponse,
-    );
-    socket.on(
-      "hrm/employees/check-lifecycle-status-response",
-      handleLifecycleStatusResponse,
-    );
+    const handleDesignationDeleted = (data: { _id: string }) => {
+      console.log('[EmployeeList] Designation deleted via broadcast:', data);
+      setFilteredDesignations(prev => prev.filter(desg => desg.value !== data._id));
+    };
+
+    // Listen for Socket.IO broadcast events
+    socket.on('employee:created', handleEmployeeCreated);
+    socket.on('employee:updated', handleEmployeeUpdated);
+    socket.on('employee:deleted', handleEmployeeDeleted);
+    socket.on('department:created', handleDepartmentCreated);
+    socket.on('department:updated', handleDepartmentUpdated);
+    socket.on('department:deleted', handleDepartmentDeleted);
+    socket.on('designation:created', handleDesignationCreated);
+    socket.on('designation:updated', handleDesignationUpdated);
+    socket.on('designation:deleted', handleDesignationDeleted);
 
     return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-      socket.off("hrm/employees/add-response", handleAddEmployeeResponse);
-      socket.off("hrm/designations/get-response", handleDesignationResponse);
-      socket.off("hr/departments/get-response", handleDepartmentResponse);
-      socket.off(
-        "hrm/employees/get-employee-stats-response",
-        handleEmployeeResponse,
-      );
-      socket.off(
-        "hrm/employees/get-employee-grid-stats-response",
-        handleEmployeeResponse,
-      );
-      socket.off("hrm/employees/delete-response", handleEmployeeDelete);
-      socket.off("hrm/employees/update-response", handleUpdateEmployeeResponse);
-      socket.off(
-        "hrm/employees/update-permissions-response",
-        handleUpdatePermissionResponse,
-      );
-      socket.off(
-        "hrm/employees/check-lifecycle-status-response",
-        handleLifecycleStatusResponse,
-      );
+      socket.off('employee:created', handleEmployeeCreated);
+      socket.off('employee:updated', handleEmployeeUpdated);
+      socket.off('employee:deleted', handleEmployeeDeleted);
+      socket.off('department:created', handleDepartmentCreated);
+      socket.off('department:updated', handleDepartmentUpdated);
+      socket.off('department:deleted', handleDepartmentDeleted);
+      socket.off('designation:created', handleDesignationCreated);
+      socket.off('designation:updated', handleDesignationUpdated);
+      socket.off('designation:deleted', handleDesignationDeleted);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket]);
+  }, [socket, fetchEmployeesWithStats]);
 
   useEffect(() => {
-    if (editingEmployee && socket) {
+    if (editingEmployee) {
       // Fetch designations for the employee's department
-      console.log("Emitting for departmentID", editingEmployee.departmentId);
+      console.log("Fetching designations for departmentID", editingEmployee.departmentId);
 
       // Check lifecycle status when employee is selected for editing
-      socket.emit("hrm/employees/check-lifecycle-status", {
-        employeeId: editingEmployee.employeeId,
-      });
+      const checkLifecycle = async () => {
+        const status = await checkLifecycleStatusREST(editingEmployee.employeeId);
+        if (status) {
+          setLifecycleStatus(status);
 
+          // Show warning if employee has lifecycle records
+          if (status.hasLifecycleRecord && status.message) {
+            toast.info(status.message, {
+              position: "top-right",
+              autoClose: 5000,
+            });
+          }
+        }
+      };
+
+      checkLifecycle();
+
+      // Fetch designations for the employee's department
       if (editingEmployee.departmentId) {
-        socket.emit("hrm/designations/get", {
-          departmentId: editingEmployee.departmentId,
+        fetchDesignations({ departmentId: editingEmployee.departmentId }).then((desigData: any[]) => {
+          if (desigData && desigData.length > 0) {
+            const mappedDesignations = desigData.map((d: Designation) => ({
+              value: d._id,
+              label: d.designation,
+            }));
+            setDesignation([{ value: "", label: "Select" }, ...mappedDesignations]);
+          }
         });
       }
     }
-  }, [editingEmployee, socket]);
+  }, [editingEmployee, checkLifecycleStatusREST, fetchDesignations]);
 
   useEffect(() => {
     if (editingEmployee && editingEmployee.permissions) {
@@ -939,11 +781,7 @@ const EmployeeList = () => {
               // Load department and designation
               if (employee.departmentId) {
                 setSelectedDepartment(employee.departmentId);
-                if (socket) {
-                  socket.emit("hrm/designations/get", {
-                    departmentId: employee.departmentId,
-                  });
-                }
+                fetchDesignations({ departmentId: employee.departmentId });
               }
               if (employee.designationId) {
                 setSelectedDesignation(employee.designationId);
@@ -1033,7 +871,7 @@ const EmployeeList = () => {
     applyFilters({ departmentId: id });
   };
 
-  const applyFilters = (updatedFields: {
+  const applyFilters = async (updatedFields: {
     departmentId?: string;
     status?: string;
     startDate?: string;
@@ -1042,9 +880,8 @@ const EmployeeList = () => {
     try {
       setFilters((prevFilters) => {
         const newFilters = { ...prevFilters, ...updatedFields };
-        if (socket) {
-          socket.emit("hrm/employees/get-employee-stats", { ...newFilters });
-        }
+        // Fetch employees with new filters using REST API
+        fetchEmployeesWithStats(newFilters);
         return newFilters;
       });
     } catch (error) {
@@ -1053,26 +890,22 @@ const EmployeeList = () => {
   };
 
   // Clear all filters
-  const clearAllFilters = () => {
+  const clearAllFilters = async () => {
     try {
-      setFilters({
+      const clearedFilters = {
         startDate: "",
         endDate: "",
         status: "",
         departmentId: "",
-      });
+      };
+      setFilters(clearedFilters);
       setSelectedDepartment("");
       setSelectedStatus("");
       setSortOrder("");
 
-      if (socket) {
-        socket.emit("hrm/employees/get-employee-stats", {
-          startDate: "",
-          endDate: "",
-          status: "",
-          departmentId: "",
-        });
-      }
+      // Fetch employees without filters using REST API
+      await fetchEmployeesWithStats(clearedFilters);
+
       toast.success("All filters cleared", {
         position: "top-right",
         autoClose: 2000,
@@ -1203,16 +1036,10 @@ const EmployeeList = () => {
     setEmployees(sortedData);
   };
 
-  const deleteEmployee = (id: string) => {
+  const handleDeleteEmployee = async (id: string) => {
     try {
       setLoading(true);
       setError(null);
-
-      if (!socket) {
-        setError("Socket connection is not available");
-        setLoading(false);
-        return;
-      }
 
       if (!id) {
         setError("Employee ID is required");
@@ -1220,10 +1047,22 @@ const EmployeeList = () => {
         return;
       }
 
-      socket.emit("hrm/employees/delete", { _id: id });
+      const success = await deleteEmployeeREST(id);
+      if (success) {
+        toast.success("Employee deleted successfully!", {
+          position: "top-right",
+          autoClose: 3000,
+        });
+        // The REST hook will refresh the employee list automatically
+      }
     } catch (error) {
       console.error("Delete error:", error);
-      setError("Failed to initiate policy deletion");
+      setError("Failed to delete employee");
+      toast.error("Failed to delete employee", {
+        position: "top-right",
+        autoClose: 3000,
+      });
+    } finally {
       setLoading(false);
     }
   };
@@ -1719,45 +1558,17 @@ const EmployeeList = () => {
       return;
     }
 
-    // Check if socket is available
-    if (!socket) {
-      setFieldErrors({ general: "Connection unavailable. Please refresh the page." });
-      return;
-    }
-
     // Show validating state
     setIsValidating(true);
 
     // Check for duplicate email, phone, and username with backend
     try {
-      // Create a promise to wait for backend response
-      const checkDuplicates = new Promise<{ done: boolean; error?: string; field?: string }>((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error("timeout"));
-        }, 15000); // 15 second timeout
+      const result = await checkDuplicatesREST(
+        formData.contact.email,
+        formData.contact.phone,
+        formData.account.userName
+      );
 
-        // Listen for duplicate check response
-        const responseHandler = (response: any) => {
-          console.log("=== FRONTEND: Received response from backend ===", response);
-          clearTimeout(timeoutId);
-          resolve(response);
-        };
-        
-        socket.once("hrm/employees/check-duplicates-response", responseHandler);
-
-        // Emit duplicate check request
-        const requestData = {
-          email: formData.contact.email,
-          userName: formData.account.userName,
-          phone: formData.contact.phone,
-        };
-        
-        console.log("=== FRONTEND: Emitting check-duplicates ===", requestData);
-        
-        socket.emit("hrm/employees/check-duplicates", requestData);
-      });
-
-      const result = await checkDuplicates;
       setIsValidating(false);
 
       console.log("Check duplicates result:", result);
@@ -1766,28 +1577,28 @@ const EmployeeList = () => {
         // Duplicate found - backend returns field and error
         const fieldName = result.field || "general";
         const errorMessage = result.error || "Validation failed";
-        
+
         console.log("Setting field error:", fieldName, errorMessage);
-        
+
         // Use parseBackendError to get user-friendly message
         const errorInfo = parseBackendError(errorMessage);
-        
+
         if (errorInfo && errorInfo.field !== "general") {
           // Set error for specific field
           setFieldErrors(prev => ({
             ...prev,
             [errorInfo.field]: errorInfo.message
           }));
-          
+
           // Also show toast as backup
           toast.error(errorInfo.message, {
             position: "top-right",
             autoClose: 5000,
           });
-          
+
           // Scroll to error field
           setTimeout(() => {
-            const errorElement = document.querySelector(`[name="${errorInfo.field}"]`) || 
+            const errorElement = document.querySelector(`[name="${errorInfo.field}"]`) ||
                                 document.querySelector(`#${errorInfo.field}`) ||
                                 document.querySelector('.is-invalid');
             if (errorElement) {
@@ -1803,7 +1614,7 @@ const EmployeeList = () => {
             autoClose: 5000,
           });
         }
-        
+
         return; // Don't proceed to next tab
       }
 
@@ -1813,21 +1624,12 @@ const EmployeeList = () => {
     } catch (error: any) {
       console.error("Validation error:", error);
       setIsValidating(false);
-      if (error.message === "timeout") {
-        const errorMsg = "Validation is taking longer than expected. Please check your connection and try again.";
-        setFieldErrors({ general: errorMsg });
-        toast.error(errorMsg, {
-          position: "top-right",
-          autoClose: 5000,
-        });
-      } else {
-        const errorMsg = "Unable to validate. Please try again.";
-        setFieldErrors({ general: errorMsg });
-        toast.error(errorMsg, {
-          position: "top-right",
-          autoClose: 5000,
-        });
-      }
+      const errorMsg = "Unable to validate. Please try again.";
+      setFieldErrors({ general: errorMsg });
+      toast.error(errorMsg, {
+        position: "top-right",
+        autoClose: 5000,
+      });
     }
   };
 
@@ -1860,17 +1662,18 @@ const EmployeeList = () => {
       // Use provided username or generate from email as fallback
       const userName = userNameField || email.split("@")[0];
 
-      const basicInfo = {
+      const employeeData: any = {
         employeeId,
         avatarUrl,
         firstName,
         lastName,
+        email,
+        phone,
         dateOfJoining,
         account: {
           role,
           userName,
         },
-        contact: { email, phone },
         personal: {
           gender: personal?.gender || "",
           birthday: personal?.birthday || null,
@@ -1889,38 +1692,104 @@ const EmployeeList = () => {
         status: normalizeStatus(status),
       };
 
-      // Prepare full submission data
-      const submissionData = {
-        employeeData: basicInfo,
-        clerkId: ClerkID,
-        permissionsData: {
-          permissions: permissions.permissions,
-          enabledModules: permissions.enabledModules,
-        },
+      const permissionsData = {
+        employeeId: employeeId, // Will be set by backend
+        permissions: permissions.permissions,
+        enabledModules: permissions.enabledModules,
       };
 
-      console.log("Full Submission Data:", submissionData);
+      console.log("Full Submission Data:", { employeeData, permissionsData });
 
-      if (!socket) {
-        console.log("Socket connection is not available");
-        setError("Socket connection is not available.");
-        setLoading(false);
-        return;
+      // Create employee using REST API
+      const result = await createEmployee(employeeData, permissionsData);
+
+      if (result.success) {
+        // Store the newly added employee data
+        if (result.employee) {
+          setNewlyAddedEmployee(result.employee as any);
+        }
+
+        // Close the add employee modal
+        if (addEmployeeModalRef.current) {
+          addEmployeeModalRef.current.click();
+          // Clean up backdrop
+          setTimeout(() => closeModal(), 100);
+        }
+
+        // Show success modal with navigation options
+        setTimeout(() => {
+          if (successModalRef.current) {
+            successModalRef.current.click();
+            // Ensure previous modal backdrop is removed
+            closeModal();
+          }
+        }, 300);
+
+        // Reset form
+        handleResetFormData();
+      } else {
+        // Parse error and set inline field error
+        const errorInfo = parseBackendError(
+          result.error?.message || "Failed to add employee"
+        );
+        if (errorInfo) {
+          setFieldErrors({ [errorInfo.field]: errorInfo.message });
+
+          // If error is for a basic field, switch to basic info tab, reset validation, and scroll
+          const basicFields = [
+            "firstName",
+            "lastName",
+            "email",
+            "role",
+            "phone",
+            "departmentId",
+            "designationId",
+            "dateOfJoining",
+          ];
+          if (
+            basicFields.includes(errorInfo.field) ||
+            errorInfo.field === "general"
+          ) {
+            setActiveTab("basic-info");
+            setIsBasicInfoValidated(false); // Reset validation flag
+            setTimeout(() => {
+              const errorElement =
+                document.querySelector(`[name="${errorInfo.field}"]`) ||
+                document.querySelector(`#${errorInfo.field}`) ||
+                document.querySelector(".is-invalid");
+              if (errorElement) {
+                errorElement.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+                (errorElement as HTMLElement).focus?.();
+              }
+            }, 100);
+          }
+        } else {
+          setFieldErrors({
+            general: result.error?.message || "Failed to add employee",
+          });
+        }
+
+        setError(result.error?.message || "Failed to add employee");
       }
-
-      // Directly save - validation already done in handleNext
-      socket.emit("hrm/employees/add", submissionData);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error submitting form and permissions:", error);
       setError("An error occurred while submitting data.");
+      toast.error("An error occurred while submitting data.", {
+        position: "top-right",
+        autoClose: 3000,
+      });
+    } finally {
       setLoading(false);
     }
   };
 
   // 1. Update basic info
-  const handleUpdateSubmit = (e: React.FormEvent) => {
+  const handleUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     // Clear previous errors
     setFieldErrors({});
     setError(null);
@@ -1934,12 +1803,12 @@ const EmployeeList = () => {
     if (!validateEditForm()) {
       return;
     }
-    
+
     // Lifecycle statuses that should only be set through HR workflows
     const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
     const currentStatus = normalizeStatus(editingEmployee.status);
 
-    const payload: any = {
+    const updateData: any = {
       employeeId: editingEmployee.employeeId || "",
       firstName: editingEmployee.firstName || "",
       lastName: editingEmployee.lastName || "",
@@ -1973,46 +1842,84 @@ const EmployeeList = () => {
     // Only include status if it's NOT a lifecycle status
     // Lifecycle statuses should only be set through termination/resignation workflows
     if (!lifecycleStatuses.includes(currentStatus)) {
-      payload.status = currentStatus;
+      updateData.status = currentStatus;
     }
 
-    console.log("update payload", payload);
+    console.log("update payload", updateData);
 
-    if (socket) {
-      socket.emit("hrm/employees/update", payload);
-      // Success toast will be shown in handleUpdateEmployeeResponse when backend confirms update
-    } else {
-      toast.error("Socket connection is not available.", {
+    try {
+      setLoading(true);
+      const success = await updateEmployee(editingEmployee.employeeId || "", updateData);
+
+      if (success) {
+        // Close the modal
+        if (editEmployeeModalRef.current) {
+          editEmployeeModalRef.current.click();
+          // Clean up backdrop
+          setTimeout(() => closeModal(), 100);
+        }
+
+        toast.success("Employee updated successfully!", {
+          position: "top-right",
+          autoClose: 3000,
+        });
+
+        setEditingEmployee(null); // Close modal or reset editing state
+      }
+    } catch (error) {
+      console.error("Update error:", error);
+      toast.error("Failed to update employee", {
         position: "top-right",
         autoClose: 3000,
       });
+    } finally {
+      setLoading(false);
     }
   };
 
   // 2. Update permissions
-  const handlePermissionUpdateSubmit = (e: React.FormEvent) => {
+  const handlePermissionUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!editingEmployee) {
-      console.log("****he**-**");
       toast.error("No employee selected for editing.");
       return;
     }
-    const payload = {
+
+    const permissionsData = {
       employeeId: editingEmployee._id,
       permissions: permissions.permissions,
       enabledModules: permissions.enabledModules,
     };
-    console.log("edit perm payload", payload);
+    console.log("edit perm payload", permissionsData);
 
-    if (socket) {
-      socket.emit("hrm/employees/update-permissions", payload);
-      // toast.success("Employee permissions update request sent.");
-      setPermissions(initialState);
-    } else {
-      console.log(error);
-      return;
-      // toast.error("Socket connection is not available.");
+    try {
+      setLoading(true);
+      const success = await updatePermissions(permissionsData);
+
+      if (success) {
+        // Close the modal on success
+        if (editEmployeeModalRef.current) {
+          editEmployeeModalRef.current.click();
+          setTimeout(() => closeModal(), 100);
+        }
+
+        toast.success("Employee permissions updated successfully!", {
+          position: "top-right",
+          autoClose: 3000,
+        });
+
+        setEditingEmployee(null); // Reset editing state
+        setPermissions(initialState);
+      }
+    } catch (error) {
+      console.error("Update permissions error:", error);
+      toast.error("Failed to update permissions.", {
+        position: "top-right",
+        autoClose: 3000,
+      });
+    } finally {
+      setLoading(false);
     }
   };
   // console.log("editing employee", editingEmployee);
@@ -2621,15 +2528,7 @@ const EmployeeList = () => {
                                             setSelectedDepartment(
                                               emp.departmentId,
                                             );
-                                            if (socket) {
-                                              socket.emit(
-                                                "hrm/designations/get",
-                                                {
-                                                  departmentId:
-                                                    emp.departmentId,
-                                                },
-                                              );
-                                            }
+                                            fetchDesignations({ departmentId: emp.departmentId });
                                           }
                                           if (emp.designationId) {
                                             setSelectedDesignation(
@@ -3354,11 +3253,7 @@ const EmployeeList = () => {
                                 clearFieldError("designationId");
 
                                 // Fetch new designations for selected department
-                                if (socket) {
-                                  socket.emit("hrm/designations/get", {
-                                    departmentId: option.value,
-                                  });
-                                }
+                                fetchDesignations({ departmentId: option.value });
                               } else {
                                 // Clear selection
                                 handleSelectChange("departmentId", "");
@@ -4272,14 +4167,12 @@ const EmployeeList = () => {
                                     : prev,
                                 );
                                 setSelectedDesignation("");
-                                if (socket && option.value) {
+                                if (option.value) {
                                   console.log(
                                     "Fetching designations for department:",
                                     option.value,
                                   );
-                                  socket.emit("hrm/designations/get", {
-                                    departmentId: option.value,
-                                  });
+                                  fetchDesignations({ departmentId: option.value });
                                 }
                               } else {
                                 // clear selection
@@ -4724,7 +4617,7 @@ const EmployeeList = () => {
                   data-bs-dismiss="modal"
                   onClick={() => {
                     if (employeeToDelete) {
-                      deleteEmployee(employeeToDelete._id);
+                      handleDeleteEmployee(employeeToDelete._id);
                     }
                     setEmployeeToDelete(null);
                     setTimeout(() => closeModal(), 100);

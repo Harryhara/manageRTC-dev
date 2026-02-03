@@ -85,7 +85,10 @@ app.use(
 
 app.use(express.json());
 
-console.log('[Deployment]: TEST TEST');
+// Note: We use manual token verification in the authenticate middleware
+// No need for clerkMiddleware() since we use verifyToken() directly
+
+console.log("[Deployment]: TEST TEST");
 
 // Serve static files from public directory
 app.use(express.static(path.join(__dirname, 'public')));

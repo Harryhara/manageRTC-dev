@@ -1,86 +1,161 @@
 /**
  * Authentication Middleware for REST APIs
  * Verifies Clerk JWT tokens and extracts user metadata
+ * Uses the same token verification approach as Socket.IO
  */
 
-import { clerkClient } from '@clerk/clerk-sdk-node';
+import { clerkClient, verifyToken } from "@clerk/express";
+
+// ⚠️ SECURITY WARNING: Development mode is hardcoded to true!
+// This is a DEVELOPMENT workaround that MUST be removed before production deployment.
+const isDevelopment = process.env.NODE_ENV === "development" || process.env.DEV_MODE === "true";
+
+// Authorized parties for JWT verification
+const authorizedParties = [
+  "http://localhost:3000",
+  "http://localhost:5173",
+  "https://dev.manage-rtc.com",
+  "https://apidev.manage-rtc.com",
+];
 
 /**
  * Authenticate - Main authentication middleware
  * Verifies Clerk JWT token and attaches user info to request
+ * Uses the same approach as Socket.IO authentication
  */
 export const authenticate = async (req, res, next) => {
-  try {
-    // Debug: Log incoming request headers
-    console.log('[Auth Middleware] Incoming request:', {
-      path: req.path,
-      method: req.method,
-      hasAuthHeader: !!req.headers.authorization,
-      authHeaderPrefix: req.headers.authorization?.substring(0, 20) + '...',
-      requestId: req.id,
-    });
+  console.log('[Auth Middleware] Starting authentication...', {
+    hasAuthHeader: !!req.headers.authorization,
+    authHeaderPrefix: req.headers.authorization?.substring(0, 10),
+    requestId: req.id
+  });
 
+  try {
     // Extract token from Authorization header
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.warn('[Auth Middleware] No Bearer token found');
+      console.error('[Auth Middleware] No Bearer token found', { requestId: req.id });
       return res.status(401).json({
         success: false,
         error: {
           code: 'UNAUTHORIZED',
-          message: 'Authentication required',
-          requestId: req.id || 'no-id',
-        },
+          message: 'Authentication required - no token provided',
+          requestId: req.id || 'no-id'
+        }
       });
     }
 
     const token = authHeader.substring(7); // Remove 'Bearer ' prefix
 
-    // Verify token using Clerk SDK
-    try {
-      const verifiedToken = await clerkClient.verifyToken(token);
+    // Verify JWT token using Clerk's verifyToken (same as Socket.IO)
+    const verifiedToken = await verifyToken(token, {
+      jwtKey: process.env.CLERK_JWT_KEY,
+      authorizedParties,
+    });
 
-      // Get user details with metadata
-      const user = await clerkClient.users.getUser(verifiedToken.sub);
-
-      // Attach user info to request
-      req.user = {
-        userId: user.id,
-        companyId: user.publicMetadata?.companyId || null,
-        role: user.publicMetadata?.role || 'public',
-        email: user.primaryEmailAddress?.emailAddress,
-      };
-
-      // Also attach full auth object for compatibility
-      req.auth = {
-        userId: user.id,
-        publicMetadata: user.publicMetadata,
-        primaryEmailAddress: user.primaryEmailAddress,
-      };
-
-      next();
-    } catch (clerkError) {
-      console.error('[Clerk Verification Error]', {
-        error: clerkError.message,
-        stack: clerkError.stack,
-        requestId: req.id,
+    if (!verifiedToken || !verifiedToken.sub) {
+      console.error('[Auth Middleware] Token verification failed - no sub claim', { requestId: req.id });
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication required - invalid token',
+          requestId: req.id || 'no-id'
+        }
       });
-      throw clerkError;
     }
+
+    console.log('[Auth Middleware] Token verified', {
+      userId: verifiedToken.sub,
+      requestId: req.id
+    });
+
+    // Fetch user from Clerk to get metadata (same as Socket.IO)
+    let user;
+    try {
+      user = await clerkClient.users.getUser(verifiedToken.sub);
+    } catch (clerkError) {
+      console.error('[Auth Middleware] Failed to fetch user from Clerk:', {
+        error: clerkError.message,
+        userId: verifiedToken.sub,
+        requestId: req.id
+      });
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'UNAUTHORIZED',
+          message: 'Authentication error: Failed to fetch user data',
+          requestId: req.id || 'no-id'
+        }
+      });
+    }
+
+    // Extract role and companyId from user metadata (same as Socket.IO)
+    let role = user.publicMetadata?.role || 'public';
+    let companyId = user.publicMetadata?.companyId || null;
+
+    console.log('[Auth Middleware] User metadata:', {
+      userId: user.id,
+      role,
+      companyId,
+      publicMetadata: user.publicMetadata,
+      requestId: req.id
+    });
+
+    // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
+    // Auto-assigning companyId for admin/hr users in development
+    // This matches the Socket.IO authentication behavior
+    // This is a TEMPORARY FIX that MUST be removed before production deployment!
+    if (isDevelopment && (role === "admin" || role === "hr") && !companyId) {
+      companyId = "68443081dcdfe43152aebf80";
+      console.warn(
+        `🔧 DEVELOPMENT WORKAROUND: Auto-assigning companyId ${companyId} to ${role} user`
+      );
+      console.warn(
+        "⚠️ This hardcoded companyId assignment MUST be removed before production!"
+      );
+    }
+
+    // Attach user info to request (same structure as Socket.IO)
+    req.user = {
+      userId: verifiedToken.sub,
+      companyId: companyId,
+      role: role,
+      email: user.primaryEmailAddress?.emailAddress,
+      publicMetadata: user.publicMetadata
+    };
+
+    // Also attach auth object for compatibility with any code that uses req.auth
+    req.auth = {
+      userId: verifiedToken.sub,
+      sub: verifiedToken.sub,
+      publicMetadata: user.publicMetadata,
+      primaryEmailAddress: user.primaryEmailAddress
+    };
+
+    console.log('[Auth Success]', {
+      userId: req.user.userId,
+      role: req.user.role,
+      companyId: req.user.companyId,
+      requestId: req.id
+    });
+
+    next();
+
   } catch (error) {
     console.error('[Auth Middleware Error]', {
       error: error.message,
       stack: error.stack,
-      requestId: req.id,
+      requestId: req.id
     });
 
     return res.status(401).json({
       success: false,
       error: {
         code: 'UNAUTHORIZED',
-        message: 'Authentication required',
-        requestId: req.id || 'no-id',
-      },
+        message: error.message || 'Authentication required',
+        requestId: req.id || 'no-id'
+      }
     });
   }
 };
@@ -127,14 +202,17 @@ export const requireRole = (...roles) => {
  * Superadmin bypasses this check (case-insensitive)
  */
 export const requireCompany = (req, res, next) => {
-  // Superadmin doesn't need company (case-insensitive check)
-  const userRole = req.user?.role?.toLowerCase();
-  if (req.user && userRole === 'superadmin') {
-    console.log('[Company Check Bypassed - Superadmin]', {
-      userId: req.user.userId,
-      role: req.user.role,
-      requestId: req.id,
-    });
+  console.log('[RequireCompany] Checking company requirement...', {
+    hasUser: !!req.user,
+    userId: req.user?.userId,
+    role: req.user?.role,
+    companyId: req.user?.companyId,
+    requestId: req.id
+  });
+
+  // Superadmin doesn't need company
+  if (req.user && req.user.role === 'superadmin') {
+    console.log('[RequireCompany] Superadmin bypass', { requestId: req.id });
     return next();
   }
 
@@ -143,7 +221,8 @@ export const requireCompany = (req, res, next) => {
       userId: req.user?.userId,
       role: req.user?.role,
       hasCompanyId: !!req.user?.companyId,
-      requestId: req.id,
+      companyId: req.user?.companyId,
+      requestId: req.id
     });
 
     return res.status(403).json({
@@ -165,12 +244,40 @@ export const requireCompany = (req, res, next) => {
  */
 export const optionalAuth = async (req, res, next) => {
   try {
-    await requireAuth()(req, res, () => {
-      // Continue regardless of auth result
-      next();
-    });
+    const authHeader = req.headers.authorization;
+
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      // Token provided, try to verify it
+      const token = authHeader.substring(7);
+
+      const verifiedToken = await verifyToken(token, {
+        jwtKey: process.env.CLERK_JWT_KEY,
+        authorizedParties,
+      });
+
+      if (verifiedToken && verifiedToken.sub) {
+        // Token is valid, attach user info
+        const user = await clerkClient.users.getUser(verifiedToken.sub);
+
+        req.user = {
+          userId: verifiedToken.sub,
+          companyId: user.publicMetadata?.companyId || null,
+          role: user.publicMetadata?.role || 'public',
+          email: user.primaryEmailAddress?.emailAddress
+        };
+
+        req.auth = {
+          userId: verifiedToken.sub,
+          sub: verifiedToken.sub,
+          publicMetadata: user.publicMetadata
+        };
+      }
+    }
+
+    // Continue regardless of auth result
+    next();
   } catch (error) {
-    // No authentication required, continue
+    // No authentication required, continue without auth
     next();
   }
 };
