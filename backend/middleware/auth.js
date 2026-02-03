@@ -180,37 +180,22 @@ export const requireRole = (...roles) => {
         error: {
           code: 'UNAUTHORIZED',
           message: 'Authentication required',
-          requestId: req.id || 'no-id'
-        }
+          requestId: req.id || 'no-id',
+        },
       });
     }
 
     // Check if user has one of the required roles
     if (!roles.includes(req.user.role)) {
-      console.warn('[Authorization Failed]', {
-        userId: req.user.userId,
-        userRole: req.user.role,
-        requiredRoles: roles,
-        requestId: req.id
-      });
-
       return res.status(403).json({
         success: false,
         error: {
           code: 'FORBIDDEN',
           message: `Insufficient permissions. Required roles: ${roles.join(', ')}`,
-          requestId: req.id || 'no-id'
-        }
+          requestId: req.id || 'no-id',
+        },
       });
     }
-
-    // User is authenticated and has required role
-    console.log('[Authorization Success]', {
-      userId: req.user.userId,
-      role: req.user.role,
-      companyId: req.user.companyId,
-      requestId: req.id
-    });
 
     next();
   };
@@ -218,7 +203,7 @@ export const requireRole = (...roles) => {
 
 /**
  * requireCompany - Ensures user belongs to a company
- * Superadmin bypasses this check
+ * Superadmin bypasses this check (case-insensitive)
  */
 export const requireCompany = (req, res, next) => {
   console.log('[RequireCompany] Checking company requirement...', {
@@ -249,8 +234,8 @@ export const requireCompany = (req, res, next) => {
       error: {
         code: 'FORBIDDEN',
         message: 'Must belong to a company',
-        requestId: req.id || 'no-id'
-      }
+        requestId: req.id || 'no-id',
+      },
     });
   }
 
@@ -307,7 +292,9 @@ export const optionalAuth = async (req, res, next) => {
  */
 export const attachRequestId = (req, res, next) => {
   // Generate or use existing request ID
-  req.id = req.headers['x-request-id'] || `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+  req.id =
+    req.headers['x-request-id'] ||
+    `req_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
 
   // Add request ID to response headers for tracing
   res.setHeader('X-Request-ID', req.id);
@@ -320,5 +307,5 @@ export default {
   requireRole,
   requireCompany,
   optionalAuth,
-  attachRequestId
+  attachRequestId,
 };
