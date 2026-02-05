@@ -305,6 +305,8 @@ const EmployeeList = () => {
   const [employeeToDelete, setEmployeeToDelete] = useState<Employee | null>(
     null,
   );
+  const [reassignEmployeeId, setReassignEmployeeId] = useState('');
+  const [reassignError, setReassignError] = useState('');
   const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
   const [newlyAddedEmployee, setNewlyAddedEmployee] = useState<Employee | null>(
     null,
@@ -363,6 +365,7 @@ const EmployeeList = () => {
     createEmployee,
     updateEmployee,
     deleteEmployee: deleteEmployeeREST,
+    reassignAndDeleteEmployee,
     updatePermissions,
     updatePersonalInfo,
     checkDuplicates: checkDuplicatesREST,
@@ -1204,34 +1207,81 @@ const EmployeeList = () => {
     setEmployees(sortedData);
   };
 
-  const handleDeleteEmployee = async (id: string) => {
+  // Get eligible employees for reassignment (same department and designation)
+  const getEligibleEmployees = () => {
+    if (!employeeToDelete) return [];
+
+    return employees.filter(emp =>
+      emp.status === 'Active' &&
+      emp._id !== employeeToDelete._id &&
+      emp.departmentId === employeeToDelete.departmentId &&
+      emp.designationId === employeeToDelete.designationId
+    );
+  };
+
+  // Delete with reassignment
+  const deleteEmployee = async (id: string, reassignedTo: string): Promise<boolean> => {
     try {
       setLoading(true);
       setError(null);
 
-      if (!id) {
-        setError("Employee ID is required");
+      if (!id || !reassignedTo) {
+        setReassignError("Employee ID and reassignment employee are required");
         setLoading(false);
-        return;
+        return false;
       }
 
-      const success = await deleteEmployeeREST(id);
-      if (success) {
-        toast.success("Employee deleted successfully!", {
-          position: "top-right",
-          autoClose: 3000,
-        });
-        // The REST hook will refresh the employee list automatically
+      // Use REST API to reassign and delete employee
+      const success = await reassignAndDeleteEmployee(id, reassignedTo, { showMessage: false });
+      if (!success) {
+        setReassignError("Failed to delete employee");
+        return false;
       }
-    } catch (error) {
-      console.error("Delete error:", error);
-      setError("Failed to delete employee");
-      toast.error("Failed to delete employee", {
+
+      toast.success("Employee deleted successfully!", {
         position: "top-right",
         autoClose: 3000,
       });
+      return true;
+    } catch (error) {
+      console.error("Delete error:", error);
+      setReassignError("Failed to delete employee");
+      setLoading(false);
+      return false;
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Handle confirm delete with validation
+  const handleConfirmDelete = async () => {
+    if (!employeeToDelete) return;
+
+    const eligibleEmployees = getEligibleEmployees();
+
+    if (eligibleEmployees.length === 0) {
+      setReassignError('No employee available with the same designation in this department for reassignment.');
+      return;
+    }
+
+    if (!reassignEmployeeId) {
+      setReassignError('Please select an employee to reassign data to.');
+      return;
+    }
+
+    if (reassignEmployeeId === employeeToDelete._id) {
+      setReassignError('You cannot reassign data to the same employee being deleted.');
+      return;
+    }
+
+    setReassignError('');
+    const success = await deleteEmployee(employeeToDelete._id, reassignEmployeeId);
+
+    if (success) {
+      const closeButton = document.querySelector('#delete_modal [data-bs-dismiss="modal"]') as HTMLButtonElement | null;
+      if (closeButton) closeButton.click();
+      setEmployeeToDelete(null);
+      setReassignEmployeeId('');
     }
   };
 
@@ -5062,18 +5112,58 @@ const EmployeeList = () => {
                 <i className="ti ti-trash-x fs-36" />
               </span>
               <h4 className="mb-1">Confirm Deletion</h4>
+              <p className="mb-1 text-warning fw-medium">
+                This employee has associated records. Please reassign them before deletion.
+              </p>
               <p className="mb-3">
                 {employeeToDelete
                   ? `Are you sure you want to delete employee "${employeeToDelete?.firstName}"? This cannot be undone.`
                   : "You want to delete all the marked items, this can't be undone once you delete."}
               </p>
+              <div className="text-start mb-3">
+                <label className="form-label">Reassign employee data to <span className="text-danger">*</span></label>
+                {(() => {
+                  const eligibleEmployees = getEligibleEmployees();
+
+                  if (eligibleEmployees.length === 0) {
+                    return (
+                      <div className="alert alert-warning py-2 mb-2">
+                        <i className="ti ti-alert-circle me-1"></i>
+                        No employee available with the same designation in this department for reassignment.
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <select
+                      className="form-select"
+                      value={reassignEmployeeId}
+                      onChange={(e) => {
+                        setReassignEmployeeId(e.target.value);
+                        setReassignError('');
+                      }}
+                    >
+                      <option value="">Select an employee</option>
+                      {eligibleEmployees.map(emp => (
+                        <option key={emp._id} value={emp._id}>
+                          {emp.firstName} {emp.lastName} ({emp.designationId})
+                        </option>
+                      ))}
+                    </select>
+                  );
+                })()}
+                {reassignError && (
+                  <div className="text-danger mt-1">{reassignError}</div>
+                )}
+              </div>
               <div className="d-flex justify-content-center">
                 <button
                   className="btn btn-light me-3"
                   data-bs-dismiss="modal"
                   onClick={() => {
                     setEmployeeToDelete(null);
-                    setTimeout(() => closeModal(), 100);
+                    setReassignEmployeeId('');
+                    setReassignError('');
                   }}
                   disabled={loading}
                 >
@@ -5081,17 +5171,10 @@ const EmployeeList = () => {
                 </button>
                 <button
                   className="btn btn-danger"
-                  data-bs-dismiss="modal"
-                  onClick={() => {
-                    if (employeeToDelete) {
-                      handleDeleteEmployee(employeeToDelete._id);
-                    }
-                    setEmployeeToDelete(null);
-                    setTimeout(() => closeModal(), 100);
-                  }}
-                  disabled={loading}
+                  onClick={handleConfirmDelete}
+                  disabled={loading || getEligibleEmployees().length === 0}
                 >
-                  {loading ? "Deleting..." : "Yes, Delete"}
+                  {loading ? 'Deleting...' : 'Yes, Delete'}
                 </button>
               </div>
             </div>

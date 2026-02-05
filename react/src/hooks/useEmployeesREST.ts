@@ -761,17 +761,21 @@ export const useEmployeesREST = () => {
    */
   const reassignAndDeleteEmployee = useCallback(async (
     employeeId: string,
-    reassignToEmployeeId: string
+    reassignToEmployeeId: string,
+    options: { showMessage?: boolean } = {}
   ): Promise<boolean> => {
     setLoading(true);
     setError(null);
+    const { showMessage = true } = options;
     try {
       const response: ApiResponse = await post(`/employees/${employeeId}/reassign-delete`, {
         reassignTo: reassignToEmployeeId
       });
 
       if (response.success) {
-        message.success('Employee reassigned and deleted successfully!');
+        if (showMessage) {
+          message.success('Employee reassigned and deleted successfully!');
+        }
         return true;
       }
       throw new Error(response.error?.message || 'Failed to reassign and delete employee');
