@@ -6,6 +6,7 @@
 import express from 'express';
 import { authenticate } from '../../middleware/auth.js';
 import leaveController from '../../controllers/rest/leave.controller.js';
+import { uploadSingleAttachment } from '../../config/multer.config.js';
 
 const router = express.Router();
 
@@ -39,6 +40,13 @@ router.get('/status/:status', leaveController.getLeavesByStatus);
  * @access  Private (All authenticated users)
  */
 router.get('/balance', leaveController.getLeaveBalance);
+
+/**
+ * @route   GET /api/leaves/team
+ * @desc    Get team leave requests (for managers)
+ * @access  Private (Manager, Admin, HR, Superadmin)
+ */
+router.get('/team', leaveController.getTeamLeaves);
 
 /**
  * @route   GET /api/leaves/:id
@@ -81,5 +89,43 @@ router.post('/:id/approve', leaveController.approveLeave);
  * @access  Private (Admin, HR, Manager)
  */
 router.post('/:id/reject', leaveController.rejectLeave);
+
+/**
+ * @route   POST /api/leaves/:id/cancel
+ * @desc    Cancel leave request (with balance restoration)
+ * @access  Private (All authenticated users)
+ */
+router.post('/:id/cancel', leaveController.cancelLeave);
+
+/**
+ * @route   POST /api/leaves/:leaveId/attachments
+ * @desc    Upload attachment for leave request
+ * @access  Private (Owner, Admin, HR)
+ */
+router.post('/:leaveId/attachments',
+  authenticate,
+  uploadSingleAttachment,
+  leaveController.uploadAttachment
+);
+
+/**
+ * @route   GET /api/leaves/:leaveId/attachments
+ * @desc    Get attachments for leave request
+ * @access  Private (Owner, Admin, HR)
+ */
+router.get('/:leaveId/attachments',
+  authenticate,
+  leaveController.getAttachments
+);
+
+/**
+ * @route   DELETE /api/leaves/:leaveId/attachments/:attachmentId
+ * @desc    Delete attachment from leave request
+ * @access  Private (Owner, Admin, HR)
+ */
+router.delete('/:leaveId/attachments/:attachmentId',
+  authenticate,
+  leaveController.deleteAttachment
+);
 
 export default router;

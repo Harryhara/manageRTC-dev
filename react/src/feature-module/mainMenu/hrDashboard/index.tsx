@@ -145,8 +145,9 @@ const HRDashboard = () => {
   // Helper function to get employee events for selected date
   const getEmployeeEventsForDate = (selectedDate: Date | null) => {
     const events: Array<{
-      type: 'birthday' | 'anniversary' | 'birthday-reminder' | 'anniversary-reminder';
-      employee: any;
+      type: 'birthday' | 'anniversary' | 'birthday-reminder' | 'anniversary-reminder' | 'resignation' | 'termination' | 'promotion' | 'notice-period-end';
+      employee?: any;
+      data?: any;
       daysUntil?: number;
       message: string;
     }> = [];
@@ -270,6 +271,65 @@ const HRDashboard = () => {
               });
             }
           }
+        }
+      });
+    }
+
+    // Check Resignations
+    if (dashboardData?.resignations) {
+      dashboardData.resignations.forEach(resignation => {
+        // Notice Date
+        if (resignation.noticeDate && isDateMatch(resignation.noticeDate, selectedDate)) {
+          events.push({
+            type: 'resignation',
+            data: resignation,
+            message: `Employee (${resignation.employeeId}) submitted resignation notice today.`
+          });
+        }
+
+        // Resignation Date
+        if (resignation.resignationDate && isDateMatch(resignation.resignationDate, selectedDate)) {
+          events.push({
+            type: 'resignation',
+            data: resignation,
+            message: `Employee (${resignation.employeeId}) resignation is effective today.`
+          });
+        }
+
+        // Last Working Day / Notice Period End
+        if (resignation.lastWorkingDay && isDateMatch(resignation.lastWorkingDay, selectedDate)) {
+          events.push({
+            type: 'notice-period-end',
+            data: resignation,
+            message: `Employee (${resignation.employeeId}) last working day is today. End of notice period.`
+          });
+        }
+      });
+    }
+
+    // Check Terminations
+    if (dashboardData?.terminations) {
+      dashboardData.terminations.forEach(termination => {
+        if (termination.terminationDate && isDateMatch(termination.terminationDate, selectedDate)) {
+          const typeText = termination.terminationType ? ` (${termination.terminationType})` : '';
+          events.push({
+            type: 'termination',
+            data: termination,
+            message: `Employee (${termination.employeeId}) termination${typeText} is effective today.`
+          });
+        }
+      });
+    }
+
+    // Check Promotions
+    if (dashboardData?.promotions) {
+      dashboardData.promotions.forEach(promotion => {
+        if (promotion.promotionDate && isDateMatch(promotion.promotionDate, selectedDate)) {
+          events.push({
+            type: 'promotion',
+            data: promotion,
+            message: `Employee (${promotion.employeeId}) promotion is effective today${promotion.fromDesignation && promotion.toDesignation ? ` (${promotion.fromDesignation} → ${promotion.toDesignation})` : ''}.`
+          });
         }
       });
     }
@@ -826,10 +886,27 @@ const HRDashboard = () => {
                   <h3 className="mb-2">
                     Welcome Back, {getUserName()}
                   </h3>
-                  <p className="text-muted">
-                    Human Resource Overview & Workforce Insights
+                  <p>
+                    You have{" "}
+                    <span className="text-primary text-decoration-underline">
+                      {dashboardData?.pendingItems?.approvals || 0}
+                    </span>{" "}
+                    Pending Approvals &amp;{" "}
+                    <span className="text-primary text-decoration-underline">
+                      {dashboardData?.pendingItems?.leaveRequests || 0}
+                    </span>{" "}
+                    Leave Requests
                   </p>
                 </div>
+              </div>
+              <div className="d-flex align-items-center flex-wrap mb-1">
+                <Link
+                  to="/leaves"
+                  className="btn btn-primary btn-md mb-2"
+                >
+                  <i className="ti ti-square-rounded-plus me-1" />
+                  Manage Leaves
+                </Link>
               </div>
             </div>
           </div>
@@ -1020,6 +1097,299 @@ const HRDashboard = () => {
             </div>
           </div>
           {/* /TIER 1: Employee Lifecycle Overview */}
+
+          {/* TIER 2: ATTENDANCE & RECRUITMENT */}
+          <div className="row">
+            {/* Attendance Overview */}
+            <div className="col-xxl-4 col-xl-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-header pb-2 d-flex align-items-center justify-content-between flex-wrap">
+                  <h5 className="mb-2">Attendance Overview</h5>
+                </div>
+                <div className="card-body">
+                  <div className="chartjs-wrapper-demo position-relative mb-4">
+                    <Chart
+                      type="doughnut"
+                      data={{
+                        labels: ["Late", "Present", "Permission", "Absent"],
+                        datasets: [
+                          {
+                            label: "Attendance",
+                            data: [
+                              dashboardData.attendanceOverview?.late || 0,
+                              dashboardData.attendanceOverview?.present || 0,
+                              dashboardData.attendanceOverview?.permission || 0,
+                              dashboardData.attendanceOverview?.absent || 0,
+                            ],
+                            backgroundColor: ["#0C4B5E", "#03C95A", "#FFC107", "#E70D0D"],
+                            borderWidth: 5,
+                            borderRadius: 10,
+                            borderColor: "#fff",
+                            hoverBorderWidth: 0,
+                            cutout: "60%",
+                          },
+                        ],
+                      }}
+                      options={{
+                        rotation: -100,
+                        circumference: 200,
+                        layout: {
+                          padding: {
+                            top: -20,
+                            bottom: -20,
+                          },
+                        },
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                          legend: {
+                            display: false,
+                          },
+                        },
+                      }}
+                      className="w-full attendence-chart md:w-30rem"
+                    />
+                    <div className="position-absolute text-center attendance-canvas">
+                      <p className="fs-13 mb-1">Total Attendance</p>
+                      <h3>{dashboardData.attendanceOverview?.total || 0}</h3>
+                    </div>
+                  </div>
+                  <h6 className="mb-3">Status</h6>
+                  <div className="d-flex align-items-center justify-content-between">
+                    <p className="f-13 mb-2">
+                      <i className="ti ti-circle-filled text-success me-1" />
+                      Present
+                    </p>
+                    <p className="f-13 fw-medium text-gray-9 mb-2">
+                      {dashboardData.attendanceOverview?.present || 0}
+                    </p>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between">
+                    <p className="f-13 mb-2">
+                      <i className="ti ti-circle-filled text-secondary me-1" />
+                      Late
+                    </p>
+                    <p className="f-13 fw-medium text-gray-9 mb-2">
+                      {dashboardData.attendanceOverview?.late || 0}
+                    </p>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between">
+                    <p className="f-13 mb-2">
+                      <i className="ti ti-circle-filled text-warning me-1" />
+                      Permission
+                    </p>
+                    <p className="f-13 fw-medium text-gray-9 mb-2">
+                      {dashboardData.attendanceOverview?.permission || 0}
+                    </p>
+                  </div>
+                  <div className="d-flex align-items-center justify-content-between mb-2">
+                    <p className="f-13 mb-2">
+                      <i className="ti ti-circle-filled text-danger me-1" />
+                      Absent
+                    </p>
+                    <p className="f-13 fw-medium text-gray-9 mb-2">
+                      {dashboardData.attendanceOverview?.absent || 0}
+                    </p>
+                  </div>
+                  {dashboardData.attendanceOverview?.absentees && dashboardData.attendanceOverview.absentees.length > 0 && (
+                    <div className="bg-light br-5 box-shadow-xs p-2 pb-0 d-flex align-items-center justify-content-between flex-wrap">
+                      <div className="d-flex align-items-center">
+                        <p className="mb-2 me-2">Total Absenties</p>
+                        <div className="avatar-list-stacked avatar-group-sm mb-2">
+                          {dashboardData.attendanceOverview.absentees
+                            .slice(0, 4)
+                            .map((absentee) => (
+                              <span
+                                key={absentee._id}
+                                className="avatar avatar-rounded"
+                              >
+                                <ImageWithBasePath
+                                  className="border border-white"
+                                  src={absentee.avatar}
+                                  alt="img"
+                                />
+                              </span>
+                            ))}
+                          {dashboardData.attendanceOverview.absentees.length > 4 && (
+                            <Link
+                              className="avatar bg-primary avatar-rounded text-fixed-white fs-10"
+                              to="#"
+                            >
+                              +{dashboardData.attendanceOverview.absentees.length - 4}
+                            </Link>
+                          )}
+                        </div>
+                      </div>
+                      <Link
+                        to="/leaves"
+                        className="fs-13 link-primary text-decoration-underline mb-2"
+                      >
+                        View Details
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* /Attendance Overview */}
+
+            {/* Clock-In/Out */}
+            <div className="col-xxl-4 col-xl-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-header pb-2 d-flex align-items-center justify-content-between flex-wrap">
+                  <h5 className="mb-2">Clock-In/Out</h5>
+                </div>
+                <div className="card-body">
+                  <div>
+                    {dashboardData.clockInOutData && dashboardData.clockInOutData.length > 0 ? (
+                      dashboardData.clockInOutData.slice(0, 3).map((employee, index) => (
+                        <div
+                          key={employee._id}
+                          className={`d-flex align-items-center justify-content-between mb-3 p-2 border ${
+                            index === 0 ? "border-dashed" : ""
+                          } br-5`}
+                        >
+                          <div className="d-flex align-items-center">
+                            <Link to="#" className="avatar flex-shrink-0">
+                              <ImageWithBasePath
+                                src={employee.avatar}
+                                className="rounded-circle border border-2"
+                                alt="img"
+                              />
+                            </Link>
+                            <div className="ms-2">
+                              <h6 className="fw-medium mb-1">
+                                <Link to="#">{employee.name}</Link>
+                              </h6>
+                              <p className="fs-13">{employee.position}</p>
+                            </div>
+                          </div>
+                          <div className="text-end">
+                            <p className="fs-13 text-gray-9 mb-1">
+                              <i className="ti ti-clock me-1 text-info" />
+                              {employee.clockIn ? new Date(employee.clockIn).toLocaleTimeString("en-US", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }) : "--:--"}
+                            </p>
+                            <p className="fs-13 text-gray-9 mb-1">
+                              <i className="ti ti-clock-pause me-1 text-danger" />
+                              {employee.clockOut ? new Date(employee.clockOut).toLocaleTimeString("en-US", {
+                                hour: "2-digit",
+                                minute: "2-digit",
+                              }) : "--:--"}
+                            </p>
+                            <span className={`badge badge-soft-${
+                              employee.status === "present" ? "success" :
+                              employee.status === "late" ? "warning" : "danger"
+                            } fs-10`}>
+                              {employee.hoursWorked ? `${employee.hoursWorked}h` : "In Progress"}
+                            </span>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-4">
+                        <i className="ti ti-clock fs-40 text-muted mb-2"></i>
+                        <p className="text-muted">No clock-in records today</p>
+                      </div>
+                    )}
+                  </div>
+                  {dashboardData.clockInOutData && dashboardData.clockInOutData.length > 3 && (
+                    <Link
+                      to="/attendance-employee"
+                      className="btn btn-light w-100 mt-2"
+                    >
+                      View All Clock Records
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* /Clock-In/Out */}
+
+            {/* Job Applicants */}
+            <div className="col-xxl-4 col-xl-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-header pb-2 d-flex align-items-center justify-content-between flex-wrap">
+                  <h5 className="mb-2">
+                    <i className="ti ti-users-group text-success me-2"></i>
+                    Job Applicants
+                  </h5>
+                  <Link to="/job-list" className="btn btn-sm btn-primary">
+                    <i className="ti ti-eye me-1"></i>View All
+                  </Link>
+                </div>
+                <div className="card-body">
+                  {dashboardData.jobApplicants?.openings && dashboardData.jobApplicants.openings.length > 0 && (
+                    <div className="mb-3 pb-3 border-bottom">
+                      <h6 className="mb-2">Open Positions</h6>
+                      <div className="d-flex flex-wrap gap-2">
+                        {dashboardData.jobApplicants.openings.slice(0, 3).map((opening) => (
+                          <span key={opening._id} className="badge badge-soft-primary">
+                            {opening.count} Opening{opening.count > 1 ? "s" : ""}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <h6 className="mb-3">Recent Applicants</h6>
+                  <div>
+                    {dashboardData.jobApplicants?.applicants && dashboardData.jobApplicants.applicants.length > 0 ? (
+                      dashboardData.jobApplicants.applicants.slice(0, 4).map((applicant) => (
+                        <div
+                          key={applicant._id}
+                          className="d-flex align-items-center justify-content-between mb-3 p-2 border br-5"
+                        >
+                          <div className="d-flex align-items-center">
+                            <Link to="#" className="avatar avatar-md flex-shrink-0">
+                              <ImageWithBasePath
+                                src={applicant.avatar || "assets/img/profiles/avatar-14.jpg"}
+                                className="rounded-circle"
+                                alt="img"
+                              />
+                            </Link>
+                            <div className="ms-2">
+                              <h6 className="fw-medium mb-1">
+                                <Link to="#">{applicant.name}</Link>
+                              </h6>
+                              <p className="fs-12 text-muted mb-1">{applicant.position}</p>
+                              <span className="badge badge-soft-info fs-10">
+                                <i className="ti ti-briefcase me-1"></i>
+                                {applicant.experience}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-end">
+                            <p className="fs-12 text-muted mb-1">
+                              <i className="ti ti-map-pin me-1"></i>
+                              {applicant.location}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="text-center py-4">
+                        <i className="ti ti-user-search fs-40 text-muted mb-2"></i>
+                        <p className="text-muted">No recent applicants</p>
+                      </div>
+                    )}
+                  </div>
+                  {dashboardData.jobApplicants?.applicants && dashboardData.jobApplicants.applicants.length > 4 && (
+                    <Link
+                      to="/job-applicants"
+                      className="btn btn-light w-100 mt-2"
+                    >
+                      View All Applicants
+                    </Link>
+                  )}
+                </div>
+              </div>
+            </div>
+            {/* /Job Applicants */}
+          </div>
+          {/* /TIER 2: ATTENDANCE & RECRUITMENT */}
+
 {/* TIER 3: OPERATIONAL PLANNING - Calendar, Holidays & Today's Info */}
           <div className="row">
             {/* Column 1: Mini Calendar */}
@@ -1254,6 +1624,110 @@ const HRDashboard = () => {
                                     </div>
                                   </div>
                                   <span className="badge badge-soft-secondary fs-10">{event.daysUntil}d</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (event.type === 'resignation') {
+                          return (
+                            <div key={`resignation-${index}`} className="border-start border-warning border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-warning-transparent me-2 mt-1">
+                                      <i className="ti ti-user-x fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">📋 Resignation</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-warning">
+                                        <i className="ti ti-clock-pause me-1"></i>Notice period tracking required
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-warning fs-10">Resignation</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (event.type === 'notice-period-end') {
+                          return (
+                            <div key={`notice-period-end-${index}`} className="border-start border-danger border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-danger-transparent me-2 mt-1">
+                                      <i className="ti ti-hourglass-empty fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">⚠️ Last Working Day</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-danger">
+                                        <i className="ti ti-alert-triangle me-1"></i>Complete exit formalities
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-danger fs-10">Final Day</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (event.type === 'termination') {
+                          return (
+                            <div key={`termination-${index}`} className="border-start border-danger border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-danger-transparent me-2 mt-1">
+                                      <i className="ti ti-ban fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">🚫 Termination</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-danger">
+                                        <i className="ti ti-file-x me-1"></i>Process final settlement
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-danger fs-10">Termination</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        if (event.type === 'promotion') {
+                          return (
+                            <div key={`promotion-${index}`} className="border-start border-success border-3 mb-3 pb-2">
+                              <div className="ps-3">
+                                <div className="d-flex align-items-start justify-content-between mb-1">
+                                  <div className="d-flex align-items-start">
+                                    <span className="avatar avatar-xs rounded-circle bg-success-transparent me-2 mt-1">
+                                      <i className="ti ti-trending-up fs-12"></i>
+                                    </span>
+                                    <div>
+                                      <h6 className="fw-semibold mb-1 fs-13">🎉 Promotion</h6>
+                                      <p className="mb-1 fs-12 text-muted">
+                                        {event.message}
+                                      </p>
+                                      <p className="mb-0 fs-11 text-success">
+                                        <i className="ti ti-crown me-1"></i>Update employee records
+                                      </p>
+                                    </div>
+                                  </div>
+                                  <span className="badge badge-soft-success fs-10">Promotion</span>
                                 </div>
                               </div>
                             </div>

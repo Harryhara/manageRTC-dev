@@ -1,41 +1,76 @@
 /**
- * Holiday REST API Routes
- * All holiday management endpoints
+ * Holiday Routes
+ * REST API endpoints for holiday management
  */
 
 import express from 'express';
-import { authenticate } from '../../middleware/auth.js';
-import holidayController from '../../controllers/rest/holiday.controller.js';
+import * as holidayController from '../../controllers/rest/holiday/holiday.controller.js';
+import { authenticateUser } from '../../middleware/auth.js';
 
 const router = express.Router();
 
 // All routes require authentication
-router.use(authenticate);
+router.use(authenticateUser);
 
 /**
  * @route   GET /api/holidays
- * @desc    Get all holidays
+ * @desc    Get all holidays for a company with optional filtering
+ * @query   year - Filter by year
+ * @query   month - Filter by month (1-12)
+ * @query   type - Filter by type (public, company, optional)
+ * @query   search - Search by name or description
  * @access  Private
  */
-router.get('/', holidayController.getAllHolidays);
+router.get('/', holidayController.getHolidays);
 
 /**
  * @route   GET /api/holidays/upcoming
  * @desc    Get upcoming holidays
+ * @query   days - Number of days ahead to look (default: 30)
  * @access  Private
  */
-router.get('/upcoming', holidayController.getUpcomingHolidays);
+router.get('/upcoming', holidayController.getUpcomingHolidaysHandler);
 
 /**
- * @route   GET /api/holidays/year/:year
- * @desc    Get holidays by year
+ * @route   GET /api/holidays/stats
+ * @desc    Get holiday statistics
+ * @query   year - Year for stats (default: current year)
+ * @access  Private (Admin, HR)
+ */
+router.get('/stats', holidayController.getHolidayStats);
+
+/**
+ * @route   POST /api/holidays/calculate
+ * @desc    Calculate working days for a date range
+ * @body    startDate - Start date
+ * @body    endDate - End date
+ * @body    state - Optional state for region-specific holidays
  * @access  Private
  */
-router.get('/year/:year', holidayController.getHolidaysByYear);
+router.post('/calculate', holidayController.calculateDaysHandler);
+
+/**
+ * @route   GET /api/holidays/check
+ * @desc    Check if a specific date is a working day
+ * @query   date - Date to check
+ * @query   state - Optional state for region-specific holidays
+ * @access  Private
+ */
+router.get('/check', holidayController.checkWorkingDayHandler);
+
+/**
+ * @route   POST /api/holidays/validate
+ * @desc    Validate leave request dates
+ * @body    startDate - Start date
+ * @body    endDate - End date
+ * @body    employeeId - Employee ID
+ * @access  Private
+ */
+router.post('/validate', holidayController.validateLeaveDatesHandler);
 
 /**
  * @route   GET /api/holidays/:id
- * @desc    Get single holiday by ID
+ * @desc    Get holiday by ID
  * @access  Private
  */
 router.get('/:id', holidayController.getHolidayById);
@@ -52,13 +87,13 @@ router.post('/', holidayController.createHoliday);
  * @desc    Update holiday
  * @access  Private (Admin, HR)
  */
-router.put('/:id', holidayController.updateHolidayById);
+router.put('/:id', holidayController.updateHoliday);
 
 /**
  * @route   DELETE /api/holidays/:id
- * @desc    Delete holiday
- * @access  Private (Admin)
+ * @desc    Delete holiday (soft delete)
+ * @access  Private (Admin, HR)
  */
-router.delete('/:id', holidayController.deleteHolidayById);
+router.delete('/:id', holidayController.deleteHoliday);
 
 export default router;

@@ -21,6 +21,19 @@ const attendanceSchema = new mongoose.Schema({
     index: true
   },
 
+  // Employee ID (string) - stored alongside ObjectId for efficient querying
+  employeeId: {
+    type: String,
+    required: [true, 'Employee ID is required'],
+    index: true
+  },
+
+  // Employee name for quick reference (denormalized)
+  employeeName: {
+    type: String,
+    trim: true
+  },
+
   // Company for multi-tenant isolation
   companyId: {
     type: String,
@@ -59,7 +72,17 @@ const attendanceSchema = new mongoose.Schema({
   // Clock out details
   clockOut: {
     time: {
-      type: Date
+      type: Date,
+      validate: {
+        validator: function(v) {
+          // If clock-in exists and clock-out is set, validate clock-out is after clock-in
+          if (this.clockIn?.time && v) {
+            return v > this.clockIn.time;
+          }
+          return true;
+        },
+        message: 'Clock out time must be after clock in time'
+      }
     },
     location: {
       type: {
@@ -125,11 +148,28 @@ const attendanceSchema = new mongoose.Schema({
   // Break time tracking
   breakDuration: {
     type: Number,
-    default: 0
+    default: 0,
+    min: [0, 'Break duration cannot be negative'],
+    max: [480, 'Break duration cannot exceed 8 hours (480 minutes)']
   },
 
   breakStartTime: Date,
   breakEndTime: Date,
+
+  // Validate break end time is after break start time
+  breakEndTime: {
+    type: Date,
+    validate: {
+      validator: function(v) {
+        // If both break start and end are set, end must be after start
+        if (this.breakStartTime && v) {
+          return v > this.breakStartTime;
+        }
+        return true;
+      },
+      message: 'Break end time must be after break start time'
+    }
+  },
 
   // Shift information
   shift: {
@@ -194,6 +234,13 @@ const attendanceSchema = new mongoose.Schema({
     index: true
   },
 
+  // Version for optimistic locking (concurrent edit prevention)
+  version: {
+    type: Number,
+    default: 0,
+    required: true
+  },
+
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Employee'
@@ -211,7 +258,13 @@ const attendanceSchema = new mongoose.Schema({
 
   deletedAt: Date
 }, {
-  timestamps: true
+  timestamps: true,
+
+  // Optimistic concurrency control
+  optimisticConcurrency: true,
+
+  // Version key configuration
+  versionKey: 'version'
 });
 
 // Compound indexes for efficient queries
@@ -220,6 +273,9 @@ attendanceSchema.index({ companyId: 1, date: -1 });
 attendanceSchema.index({ companyId: 1, status: 1 });
 attendanceSchema.index({ employee: 1, isDeleted: 1 });
 attendanceSchema.index({ date: 1, status: 1, isDeleted: 1 });
+// Phase 2.1: Added missing compound indexes for better query performance
+attendanceSchema.index({ employee: 1, date: 1, isDeleted: 1 });
+attendanceSchema.index({ companyId: 1, status: 1, isDeleted: 1 });
 
 // Virtual for total duration
 attendanceSchema.virtual('totalDuration').get(function() {
@@ -240,7 +296,7 @@ attendanceSchema.virtual('workSession').get(function() {
 });
 
 // Pre-save middleware to calculate hours worked
-attendanceSchema.pre('save', function(next) {
+attendanceSchema.pre('save', async function(next) {
   // Calculate hours worked if both clock in and clock out are present
   if (this.clockIn?.time && this.clockOut?.time) {
     const totalMs = this.clockOut.time - this.clockIn.time;
@@ -251,8 +307,51 @@ attendanceSchema.pre('save', function(next) {
 
     this.hoursWorked = Math.max(0, workHours);
 
-    // Calculate regular and overtime hours (assuming 8 hours is regular)
-    const regularHoursLimit = 8;
+    // Use shift-based calculations if shift is assigned, otherwise use defaults
+    let regularHoursLimit = 8;
+    let overtimeThreshold = 8;
+    let lateThreshold = 9.5; // 9:30 AM (default)
+    let earlyThreshold = 18; // 6:00 PM (default)
+    let gracePeriod = 0; // Grace period in minutes
+    let earlyDepartureAllowance = 0; // Early departure allowance in minutes
+
+    // If shift is assigned, get shift settings
+    if (this.shift) {
+      try {
+        const Shift = mongoose.model('Shift');
+        const shift = await Shift.findById(this.shift);
+
+        if (shift) {
+          regularHoursLimit = shift.minHoursForFullDay || 8;
+          overtimeThreshold = shift.overtime?.threshold || 8;
+
+          // Parse shift start time for late calculation
+          if (shift.startTime) {
+            const [shiftHour, shiftMin] = shift.startTime.split(':').map(Number);
+            lateThreshold = shiftHour + (shiftMin / 60);
+            gracePeriod = (shift.gracePeriod || 0) / 60; // Convert to hours
+          }
+
+          // Parse shift end time for early departure calculation
+          if (shift.endTime) {
+            const [shiftEndHour, shiftEndMin] = shift.endTime.split(':').map(Number);
+            earlyThreshold = shiftEndHour + (shiftEndMin / 60);
+            earlyDepartureAllowance = (shift.earlyDepartureAllowance || 0) / 60; // Convert to hours
+          }
+
+          // Store scheduled times for reference
+          this.scheduledStart = new Date(this.clockIn.time);
+          this.scheduledStart.setHours(shift.startTime.split(':')[0], shift.startTime.split(':')[1], 0, 0);
+          this.scheduledEnd = new Date(this.clockIn.time);
+          this.scheduledEnd.setHours(shift.endTime.split(':')[0], shift.endTime.split(':')[1], 0, 0);
+        }
+      } catch (error) {
+        console.error('[Attendance Schema] Error fetching shift:', error);
+        // Continue with default values if shift fetch fails
+      }
+    }
+
+    // Calculate regular and overtime hours
     if (this.hoursWorked > regularHoursLimit) {
       this.regularHours = regularHoursLimit;
       this.overtimeHours = this.hoursWorked - regularHoursLimit;
@@ -261,39 +360,51 @@ attendanceSchema.pre('save', function(next) {
       this.overtimeHours = 0;
     }
 
-    // Determine if late (after 9:30 AM)
+    // Determine if late (using shift-based threshold with grace period)
     if (this.clockIn.time) {
       const clockInHour = this.clockIn.time.getHours();
       const clockInMinute = this.clockIn.time.getMinutes();
-      const lateThreshold = 9.5; // 9:30 AM
+      const clockInDecimal = clockInHour + (clockInMinute / 60);
 
-      if (clockInHour + (clockInMinute / 60) > lateThreshold) {
+      if (clockInDecimal > (lateThreshold + gracePeriod)) {
         this.isLate = true;
-        this.lateMinutes = Math.round((clockInHour + (clockInMinute / 60) - lateThreshold) * 60);
+        this.lateMinutes = Math.round((clockInDecimal - lateThreshold) * 60);
       } else {
         this.isLate = false;
         this.lateMinutes = 0;
       }
     }
 
-    // Determine if early departure (before 6:00 PM)
+    // Determine if early departure (using shift-based threshold with allowance)
     if (this.clockOut.time) {
       const clockOutHour = this.clockOut.time.getHours();
-      const earlyThreshold = 18; // 6:00 PM
+      const clockOutMinute = this.clockOut.time.getMinutes();
+      const clockOutDecimal = clockOutHour + (clockOutMinute / 60);
 
-      if (clockOutHour < earlyThreshold && !this.isLate) {
+      if (clockOutDecimal < (earlyThreshold - earlyDepartureAllowance) && !this.isLate) {
         this.isEarlyDeparture = true;
-        this.earlyDepartureMinutes = Math.round((earlyThreshold - clockOutHour) * 60);
+        this.earlyDepartureMinutes = Math.round((earlyThreshold - clockOutDecimal) * 60);
       } else {
         this.isEarlyDeparture = false;
         this.earlyDepartureMinutes = 0;
       }
     }
+
+    // Determine attendance status based on hours worked
+    if (this.hoursWorked < 4) {
+      this.status = 'half-day';
+    } else if (this.isLate) {
+      this.status = 'late';
+    } else if (this.isEarlyDeparture) {
+      this.status = 'early-departure';
+    } else {
+      this.status = 'present';
+    }
   }
 
   // Generate attendance ID if not present
   if (!this.attendanceId) {
-    generateAttendanceId().then(id => {
+    generateAttendanceId(this.companyId).then(id => {
       this.attendanceId = id;
       next();
     }).catch(next);

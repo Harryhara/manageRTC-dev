@@ -8,6 +8,7 @@ import { message } from 'antd';
 import { useCallback, useEffect, useState } from 'react';
 import { ApiResponse, buildParams, del, get, getAuthToken, post, put } from '../services/api';
 import { useSocket } from '../SocketContext';
+import axios from 'axios';
 
 // Permission Module Types
 export type PermissionModule =
@@ -49,11 +50,13 @@ export interface Employee {
   department?: string; // Populated
   designationId?: string;
   designation?: string; // Populated
+  jobTitle?: string; // Alias for designation or separate job title
   reportingTo?: string;
   reportingToName?: string; // Populated
   manager?: string;
   status: 'Active' | 'Inactive' | 'On Notice' | 'Resigned' | 'Terminated' | 'On Leave';
   employmentStatus?: 'Active' | 'Probation' | 'Resigned' | 'Terminated' | 'On Leave';
+  shiftId?: string; // Assigned shift ID
   gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
   dateOfBirth?: string;
   dateOfJoining: string;
@@ -248,18 +251,10 @@ export const useEmployeesREST = () => {
   /**
    * Fetch employees with stats
    * REST API: GET /api/employees
+   * Note: Company ID is extracted server-side from the token's public metadata
+   * The API interceptor handles token refresh automatically
    */
   const fetchEmployeesWithStats = useCallback(async (filters: EmployeeFilters = {}) => {
-    // Guard: Check for auth token before making request
-    // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
-    const token = getAuthToken();
-
-    if (!token) {
-      console.log('[useEmployeesREST] Cannot fetch - missing auth token', { hasToken: !!token });
-      setError('Authentication required. Please ensure you are logged in.');
-      return;
-    }
-
     setLoading(true);
     setError(null);
     try {
@@ -949,6 +944,111 @@ export const useEmployeesREST = () => {
     }
   }, []);
 
+  /**
+   * Upload employee profile image
+   * REST API: POST /api/employees/:id/image
+   */
+  const uploadProfileImage = useCallback(async (
+    employeeId: string,
+    file: File
+  ): Promise<{ success: boolean; profileImage?: string; error?: any }> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error('Authentication required');
+      }
+
+      // Create FormData for file upload
+      const formData = new FormData();
+      formData.append('profileImage', file);
+
+      // Get the base URL from the api service
+      const API_BASE_URL =
+        process.env.REACT_APP_API_URL || process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+
+      // Make direct axios call with FormData
+      const response = await axios.post(
+        `${API_BASE_URL}/api/employees/${employeeId}/image`,
+        formData,
+        {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            // Don't set Content-Type - let axios set it with the correct boundary
+          },
+          timeout: 60000, // 60 seconds for image upload
+        }
+      );
+
+      if (response.data && response.data.success) {
+        message.success('Profile image uploaded successfully!');
+
+        // Update the employee in the local state
+        setEmployees(prev =>
+          prev.map(emp =>
+            emp._id === employeeId
+              ? { ...emp, profileImage: response.data.data.profileImage, avatarUrl: response.data.data.profileImage }
+              : emp
+          )
+        );
+
+        return {
+          success: true,
+          profileImage: response.data.data.profileImage
+        };
+      }
+      throw new Error(response.data?.error?.message || 'Failed to upload image');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to upload profile image';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return {
+        success: false,
+        error: errorMessage
+      };
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Delete employee profile image
+   * REST API: DELETE /api/employees/:id/image
+   */
+  const deleteProfileImage = useCallback(async (
+    employeeId: string
+  ): Promise<boolean> => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response: ApiResponse = await del(`/employees/${employeeId}/image`);
+
+      if (response.success) {
+        message.success('Profile image removed successfully!');
+
+        // Update the employee in the local state
+        setEmployees(prev =>
+          prev.map(emp =>
+            emp._id === employeeId
+              ? { ...emp, profileImage: null, avatarUrl: null }
+              : emp
+          )
+        );
+
+        return true;
+      }
+      throw new Error(response.error?.message || 'Failed to delete image');
+    } catch (err: any) {
+      const errorMessage = err.response?.data?.error?.message || err.message || 'Failed to delete profile image';
+      setError(errorMessage);
+      message.error(errorMessage);
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Socket.IO real-time listeners for broadcast notifications
   useEffect(() => {
     if (!socket) return;
@@ -985,17 +1085,10 @@ export const useEmployeesREST = () => {
     };
   }, [socket, fetchEmployeesWithStats]);
 
-  // Initial data fetch - wait for auth token
-  // Company ID is extracted server-side from the token's public metadata (same as Socket.IO)
+  // Initial data fetch
+  // Company ID is extracted server-side from the token's public metadata
+  // The API interceptor handles token refresh automatically
   useEffect(() => {
-    const token = getAuthToken();
-
-    // Guard: Don't fetch until token is available
-    if (!token) {
-      console.log('[useEmployeesREST] Waiting for auth token', { hasToken: !!token });
-      return;
-    }
-
     fetchEmployeesWithStats();
   }, []);
 
@@ -1025,8 +1118,9 @@ export const useEmployeesREST = () => {
     getDepartmentStats,
     checkDuplicates,
     checkUsernameAvailability,
-    checkEmailAvailability,
-    checkLifecycleStatus
+    checkLifecycleStatus,
+    uploadProfileImage,
+    deleteProfileImage
   };
 };
 

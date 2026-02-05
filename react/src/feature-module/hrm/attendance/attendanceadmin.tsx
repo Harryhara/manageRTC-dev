@@ -1,22 +1,137 @@
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
-import { attendance_admin_details } from "../../../core/data/json/attendanceadmin";
 import { all_routes } from "../../router/all_routes";
 import PredefinedDateRanges from "../../../core/common/datePicker";
 import Table from "../../../core/common/dataTable/index";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import CommonSelect from "../../../core/common/commonSelect";
-import { DatePicker, TimePicker } from "antd";
+import { DatePicker, TimePicker, Spin, Input, message } from "antd";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../core/common/footer";
+import { useAttendanceREST, toTableFormat, formatAttendanceDate } from "../../../hooks/useAttendanceREST";
+import { ReloadOutlined } from "@ant-design/icons";
+import { useSocketAttendance, AttendanceClockInEvent, AttendanceClockOutEvent } from "../../../hooks/useSocket";
+import { getAuthToken } from "../../../services/api";
 
 const AttendanceAdmin = () => {
-  const data = attendance_admin_details;
+  // API Hook
+  const {
+    attendance,
+    stats,
+    loading,
+    error,
+    pagination,
+    fetchAttendance,
+    fetchStats,
+    deleteAttendance,
+    bulkAction,
+    updateAttendance
+  } = useAttendanceREST();
+
+  // Socket.IO Hook - Real-time attendance updates
+  const { isConnected: socketConnected } = useSocketAttendance(getAuthToken() || undefined, {
+    // Handle clock in events from other users
+    onClockIn: (data: AttendanceClockInEvent) => {
+      console.log('[AttendanceAdmin] Clock in event received:', data);
+      // Refresh attendance list to show new clock in
+      fetchAttendance(filters);
+      // Refresh stats
+      fetchStats();
+      // Show notification
+      message.success(`${data.employee || 'An employee'} clocked in`);
+    },
+
+    // Handle clock out events from other users
+    onClockOut: (data: AttendanceClockOutEvent) => {
+      console.log('[AttendanceAdmin] Clock out event received:', data);
+      // Refresh attendance list to show clock out
+      fetchAttendance(filters);
+      // Refresh stats
+      fetchStats();
+      // Show notification
+      message.info(`${data.employee || 'An employee'} clocked out`);
+    },
+
+    // Handle new attendance records
+    onCreated: (data) => {
+      console.log('[AttendanceAdmin] Attendance created event received:', data);
+      fetchAttendance(filters);
+      fetchStats();
+    },
+
+    // Handle attendance updates
+    onUpdated: (data) => {
+      console.log('[AttendanceAdmin] Attendance updated event received:', data);
+      fetchAttendance(filters);
+      fetchStats();
+    },
+
+    // Handle attendance deletion
+    onDeleted: (data) => {
+      console.log('[AttendanceAdmin] Attendance deleted event received:', data);
+      fetchAttendance(filters);
+      fetchStats();
+    },
+
+    // Handle bulk updates
+    onBulkUpdated: (data) => {
+      console.log('[AttendanceAdmin] Bulk update event received:', data);
+      fetchAttendance(filters);
+      fetchStats();
+      message.success(`Bulk action completed: ${data.updatedCount} records updated`);
+    },
+  });
+
+  // Filters state
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 20,
+    status: '',
+    search: '',
+    startDate: '',
+    endDate: '',
+    sortBy: 'date',
+    order: 'desc' as 'asc' | 'desc'
+  });
+
+  // UI state
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [searchTerm, setSearchTerm] = useState<string>('');
+  const [selectedDateRange, setSelectedDateRange] = useState<string>('');
+
+  // Edit form state
+  const [editFormData, setEditFormData] = useState<{
+    _id: string;
+    date: any;
+    clockIn: any;
+    clockOut: any;
+    breakDuration: number;
+    lateMinutes: number;
+    hoursWorked: number;
+    status: string;
+  } | null>(null);
+
+  // Fetch data on mount and when filters change
+  useEffect(() => {
+    fetchAttendance(filters);
+  }, [filters]);
+
+  // Fetch statistics on mount
+  useEffect(() => {
+    fetchStats();
+  }, []);
+
+  // Transform attendance data for table display
+  const tableData = useMemo(() => {
+    return attendance.map(toTableFormat);
+  }, [attendance]);
+
+  // Table columns
   const columns = [
     {
       title: "Employee",
       dataIndex: "Employee",
-      render: (text: String, record: any) => (
+      render: (text: string, record: any) => (
         <div className="d-flex align-items-center file-name-icon">
           <Link to="#" className="avatar avatar-md border avatar-rounded">
             <ImageWithBasePath
@@ -33,55 +148,57 @@ const AttendanceAdmin = () => {
           </div>
         </div>
       ),
-      sorter: (a: any, b: any) => a.Employee.length - b.Employee.length,
+      sorter: true,
     },
     {
       title: "Status",
       dataIndex: "Status",
-      render: (text: String, record: any) => (
+      render: (text: string) => (
         <span
           className={`badge ${
-            text === "Present"
+            text === "Present" || text === "Late"
               ? "badge-success-transparent"
-              : "badge-danger-transparent"
+              : text === "Absent"
+              ? "badge-danger-transparent"
+              : "badge-warning-transparent"
           } d-inline-flex align-items-center`}
         >
           <i className="ti ti-point-filled me-1" />
-          {record.Status}
+          {text}
         </span>
       ),
-      sorter: (a: any, b: any) => a.Status.length - b.Status.length,
+      sorter: true,
     },
     {
       title: "Check In",
       dataIndex: "CheckIn",
-      sorter: (a: any, b: any) => a.CheckIn.length - b.CheckIn.length,
+      sorter: true,
     },
     {
       title: "Check Out",
       dataIndex: "CheckOut",
-      sorter: (a: any, b: any) => a.CheckOut.length - b.CheckOut.length,
+      sorter: true,
     },
     {
       title: "Break",
       dataIndex: "Break",
-      sorter: (a: any, b: any) => a.Break.length - b.Break.length,
+      sorter: true,
     },
     {
       title: "Late",
       dataIndex: "Late",
-      sorter: (a: any, b: any) => a.Late.length - b.Late.length,
+      sorter: true,
     },
     {
       title: "Production Hours",
       dataIndex: "ProductionHours",
-      render: (text: String, record: any) => (
+      render: (text: string, record: any) => (
         <span
           className={`badge d-inline-flex align-items-center badge-sm ${
-            record.ProductionHours < "8.00"
+            parseFloat(record.ProductionHours) < 8
               ? "badge-danger"
-              : record.ProductionHours >= "8.00" &&
-                record.ProductionHours <= "9.00"
+              : parseFloat(record.ProductionHours) >= 8 &&
+                parseFloat(record.ProductionHours) <= 9
               ? "badge-success"
               : "badge-info"
           }`}
@@ -90,13 +207,12 @@ const AttendanceAdmin = () => {
           {record.ProductionHours}
         </span>
       ),
-      sorter: (a: any, b: any) =>
-        a.ProductionHours.length - b.ProductionHours.length,
+      sorter: true,
     },
     {
       title: "",
       dataIndex: "actions",
-      render: () => (
+      render: (_: any, record: any) => (
         <div className="action-icon d-inline-flex">
           <Link
             to="#"
@@ -104,6 +220,7 @@ const AttendanceAdmin = () => {
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#edit_attendance"
+            onClick={() => handleEdit(record._original)}
           >
             <i className="ti ti-edit" />
           </Link>
@@ -111,19 +228,116 @@ const AttendanceAdmin = () => {
       ),
     },
   ];
+
   const statusChoose = [
-    { value: "Select", label: "Select" },
-    { value: "Present", label: "Present" },
-    { value: "Absent", label: "Absent" },
+    { value: "", label: "All" },
+    { value: "present", label: "Present" },
+    { value: "absent", label: "Absent" },
+    { value: "late", label: "Late" },
+    { value: "half-day", label: "Half Day" },
   ];
+
+  // Filter handlers
+  const handleStatusFilter = (status: string) => {
+    setSelectedStatus(status);
+    setFilters({ ...filters, status, page: 1 });
+  };
+
+  const handleSearch = (value: string) => {
+    setSearchTerm(value);
+    setFilters({ ...filters, search: value, page: 1 });
+  };
+
+  const handleDateRangeChange = (dateRange: any) => {
+    setSelectedDateRange(dateRange);
+    if (dateRange && dateRange.startDate && dateRange.endDate) {
+      setFilters({
+        ...filters,
+        startDate: dateRange.startDate.format('YYYY-MM-DD'),
+        endDate: dateRange.endDate.format('YYYY-MM-DD'),
+        page: 1
+      });
+    }
+  };
+
+  const handleSort = (sortBy: string, order: 'asc' | 'desc') => {
+    setFilters({ ...filters, sortBy, order });
+  };
+
+  const handlePageChange = (page: number) => {
+    setFilters({ ...filters, page });
+  };
+
+  const handleRefresh = () => {
+    fetchAttendance(filters);
+    fetchStats();
+  };
+
+  const handleEdit = (attendance: any) => {
+    setEditFormData({
+      _id: attendance._id,
+      date: attendance.date ? attendance.date : null,
+      clockIn: attendance.clockIn?.time ? attendance.clockIn.time : null,
+      clockOut: attendance.clockOut?.time ? attendance.clockOut.time : null,
+      breakDuration: attendance.breakDuration || 0,
+      lateMinutes: attendance.lateMinutes || 0,
+      hoursWorked: attendance.hoursWorked || 0,
+      status: attendance.status || 'present',
+    });
+  };
+
+  const handleEditSubmit = async () => {
+    if (!editFormData) return;
+
+    const payload: any = {
+      date: editFormData.date?.format ? editFormData.date.format('YYYY-MM-DD') : editFormData.date,
+      status: editFormData.status,
+      breakDuration: editFormData.breakDuration,
+      lateMinutes: editFormData.lateMinutes,
+    };
+
+    if (editFormData.clockIn) {
+      payload.clockIn = {
+        time: editFormData.clockIn?.format ? editFormData.clockIn.format('HH:mm:ss') : editFormData.clockIn,
+      };
+    }
+
+    if (editFormData.clockOut) {
+      payload.clockOut = {
+        time: editFormData.clockOut?.format ? editFormData.clockOut.format('HH:mm:ss') : editFormData.clockOut,
+      };
+    }
+
+    const success = await updateAttendance(editFormData._id, payload);
+
+    if (success) {
+      setEditFormData(null);
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('edit_attendance');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchAttendance(filters);
+      fetchStats();
+    }
+  };
+
+  const handleDelete = async (attendanceId: string) => {
+    if (window.confirm('Are you sure you want to delete this attendance record?')) {
+      await deleteAttendance(attendanceId);
+    }
+  };
 
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
-    return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
+    return modalElement ? modalElement : document.body;
   };
+
   const getModalContainer2 = () => {
     const modalElement = document.getElementById("modal_datepicker");
-    return modalElement ? modalElement : document.body; // Fallback to document.body if modalElement is null
+    return modalElement ? modalElement : document.body;
   };
 
   return (
@@ -216,7 +430,7 @@ const AttendanceAdmin = () => {
                 <div className="col-md-5">
                   <div className="mb-3 mb-md-0">
                     <h4 className="mb-1">Attendance Details Today</h4>
-                    <p>Data from the 800+ total no of employees</p>
+                    <p>{stats ? `Total: ${stats.total} employees` : 'Loading...'}</p>
                   </div>
                 </div>
                 <div className="col-md-7">
@@ -237,47 +451,21 @@ const AttendanceAdmin = () => {
                           alt="img"
                         />
                       </span>
-                      <span className="avatar avatar-rounded">
-                        <ImageWithBasePath
-                          className="border border-white"
-                          src="assets/img/profiles/avatar-05.jpg"
-                          alt="img"
-                        />
-                      </span>
-                      <span className="avatar avatar-rounded">
-                        <ImageWithBasePath
-                          className="border border-white"
-                          src="assets/img/profiles/avatar-06.jpg"
-                          alt="img"
-                        />
-                      </span>
-                      <span className="avatar avatar-rounded">
-                        <ImageWithBasePath
-                          className="border border-white"
-                          src="assets/img/profiles/avatar-07.jpg"
-                          alt="img"
-                        />
-                      </span>
-                      <Link
-                        className="avatar bg-primary avatar-rounded text-fixed-white fs-12"
-                        to="#"
-                      >
-                        +1
-                      </Link>
                     </div>
                   </div>
                 </div>
               </div>
+              {/* Statistics Cards */}
               <div className="border rounded">
                 <div className="row gx-0">
                   <div className="col-md col-sm-4 border-end">
                     <div className="p-3">
                       <span className="fw-medium mb-1 d-block">Present</span>
                       <div className="d-flex align-items-center justify-content-between">
-                        <h5>250</h5>
+                        <h5>{stats?.present || 0}</h5>
                         <span className="badge badge-success d-inline-flex align-items-center">
                           <i className="ti ti-arrow-wave-right-down me-1" />
-                          +1%
+                          {stats?.attendanceRate ? `${stats.attendanceRate}%` : '0%'}
                         </span>
                       </div>
                     </div>
@@ -286,46 +474,34 @@ const AttendanceAdmin = () => {
                     <div className="p-3">
                       <span className="fw-medium mb-1 d-block">Late Login</span>
                       <div className="d-flex align-items-center justify-content-between">
-                        <h5>45</h5>
+                        <h5>{stats?.late || 0}</h5>
                         <span className="badge badge-danger d-inline-flex align-items-center">
                           <i className="ti ti-arrow-wave-right-down me-1" />
-                          -1%
+                          {stats?.lateRate ? `${stats.lateRate}%` : '0%'}
                         </span>
                       </div>
                     </div>
                   </div>
                   <div className="col-md col-sm-4 border-end">
                     <div className="p-3">
-                      <span className="fw-medium mb-1 d-block">Uninformed</span>
+                      <span className="fw-medium mb-1 d-block">Absent</span>
                       <div className="d-flex align-items-center justify-content-between">
-                        <h5>15</h5>
+                        <h5>{stats?.absent || 0}</h5>
                         <span className="badge badge-danger d-inline-flex align-items-center">
                           <i className="ti ti-arrow-wave-right-down me-1" />
-                          -12%
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md col-sm-4 border-end">
-                    <div className="p-3">
-                      <span className="fw-medium mb-1 d-block">Permisson</span>
-                      <div className="d-flex align-items-center justify-content-between">
-                        <h5>03</h5>
-                        <span className="badge badge-success d-inline-flex align-items-center">
-                          <i className="ti ti-arrow-wave-right-down me-1" />
-                          +1%
+                          -
                         </span>
                       </div>
                     </div>
                   </div>
                   <div className="col-md col-sm-4">
                     <div className="p-3">
-                      <span className="fw-medium mb-1 d-block">Absent</span>
+                      <span className="fw-medium mb-1 d-block">Half Day</span>
                       <div className="d-flex align-items-center justify-content-between">
-                        <h5>12</h5>
-                        <span className="badge badge-danger d-inline-flex align-items-center">
-                          <i className="ti ti-arrow-wave-right-down me-1" />
-                          -19%
+                        <h5>{stats?.halfDay || 0}</h5>
+                        <span className="badge badge-warning d-inline-flex align-items-center">
+                          <i className="ti ti-minus me-1" />
+                          -
                         </span>
                       </div>
                     </div>
@@ -334,97 +510,89 @@ const AttendanceAdmin = () => {
               </div>
             </div>
           </div>
+          {/* Attendance Table */}
           <div className="card">
             <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
               <h5>Admin Attendance</h5>
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap row-gap-3">
+                {/* Refresh Button */}
+                <button
+                  className="btn btn-white me-3"
+                  onClick={handleRefresh}
+                  disabled={loading}
+                >
+                  <ReloadOutlined spin={loading} />
+                </button>
+
+                {/* Date Range Picker */}
                 <div className="me-3">
                   <div className="input-icon-end position-relative">
-                    <PredefinedDateRanges />
+                    <PredefinedDateRanges onChange={handleDateRangeChange} />
                     <span className="input-icon-addon">
                       <i className="ti ti-chevron-down" />
                     </span>
                   </div>
                 </div>
+
+                {/* Status Filter */}
                 <div className="dropdown me-3">
                   <Link
                     to="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
                   >
-                    Department
+                    {selectedStatus ? statusChoose.find(s => s.value === selectedStatus)?.label : 'Select Status'}
                   </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Finance
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Application Development
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        IT Management
-                      </Link>
-                    </li>
+                  <ul className="dropdown-menu dropdown-menu-end p-3">
+                    {statusChoose.map((option) => (
+                      <li key={option.value}>
+                        <Link
+                          to="#"
+                          className="dropdown-item rounded-1"
+                          onClick={() => handleStatusFilter(option.value)}
+                        >
+                          {option.label}
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 </div>
-                <div className="dropdown me-3">
-                  <Link
-                    to="#"
-                    className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
-                    data-bs-toggle="dropdown"
-                  >
-                    Select Status
-                  </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Present
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Absent
-                      </Link>
-                    </li>
-                  </ul>
+
+                {/* Search */}
+                <div className="me-3">
+                  <Input.Search
+                    placeholder="Search notes..."
+                    value={searchTerm}
+                    onChange={(e) => handleSearch(e.target.value)}
+                    onSearch={handleSearch}
+                    allowClear
+                    style={{ width: 200 }}
+                  />
                 </div>
+
+                {/* Sort */}
                 <div className="dropdown">
                   <Link
                     to="#"
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
                   >
-                    Sort By : Last 7 Days
+                    Sort By : {filters.sortBy === 'date' ? 'Date' : filters.sortBy}
                   </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
+                  <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => handleSort('date', 'desc')}>
                         Recently Added
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Ascending
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => handleSort('date', 'asc')}>
+                        Date Ascending
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Desending
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Last Month
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Last 7 Days
+                      <Link to="#" className="dropdown-item rounded-1" onClick={() => handleSort('date', 'desc')}>
+                        Date Desending
                       </Link>
                     </li>
                   </ul>
@@ -432,14 +600,29 @@ const AttendanceAdmin = () => {
               </div>
             </div>
             <div className="card-body p-0">
-              <Table dataSource={data} columns={columns} Selection={true} />
+              {loading ? (
+                <div className="text-center py-5">
+                  <Spin size="large" tip="Loading attendance data..." />
+                </div>
+              ) : error ? (
+                <div className="text-center py-5 text-danger">
+                  {error}
+                </div>
+              ) : (
+                <Table
+                  dataSource={tableData}
+                  columns={columns}
+                  Selection={true}
+                />
+              )}
             </div>
           </div>
         </div>
         <Footer />
       </div>
       {/* /Page Wrapper */}
-      {/* Edit Attendance */}
+
+      {/* Edit Attendance Modal */}
       <div className="modal fade" id="edit_attendance">
         <div className="modal-dialog modal-dialog-centered">
           <div className="modal-content">
@@ -450,6 +633,7 @@ const AttendanceAdmin = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setEditFormData(null)}
               >
                 <i className="ti ti-x" />
               </button>
@@ -469,6 +653,8 @@ const AttendanceAdmin = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.date}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar" />
@@ -486,6 +672,8 @@ const AttendanceAdmin = () => {
                           placeholder="Choose"
                           format="h:mm A"
                           className="form-control timepicker"
+                          value={editFormData?.clockIn}
+                          onChange={(time) => editFormData && setEditFormData({ ...editFormData, clockIn: time })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-clock-hour-3" />
@@ -503,6 +691,8 @@ const AttendanceAdmin = () => {
                           placeholder="Choose"
                           format="h:mm A"
                           className="form-control timepicker"
+                          value={editFormData?.clockOut}
+                          onChange={(time) => editFormData && setEditFormData({ ...editFormData, clockOut: time })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-clock-hour-3" />
@@ -512,48 +702,34 @@ const AttendanceAdmin = () => {
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Break</label>
+                      <label className="form-label">Break (minutes)</label>
                       <input
-                        type="text"
+                        type="number"
                         className="form-control"
-                        defaultValue="30 Min	"
+                        value={editFormData?.breakDuration || 0}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, breakDuration: parseInt(e.target.value) || 0 })}
                       />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
-                      <label className="form-label">Late</label>
+                      <label className="form-label">Late (minutes)</label>
                       <input
-                        type="text"
+                        type="number"
                         className="form-control"
-                        defaultValue="32 Min"
+                        value={editFormData?.lateMinutes || 0}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, lateMinutes: parseInt(e.target.value) || 0 })}
                       />
                     </div>
                   </div>
                   <div className="col-md-12">
                     <div className="mb-3">
-                      <label className="form-label">Production Hours</label>
-                      <div className="input-icon input-icon-new position-relative w-100">
-                        <TimePicker
-                          getPopupContainer={getModalContainer2}
-                          use12Hours
-                          placeholder="Choose"
-                          format="h:mm A"
-                          className="form-control timepicker"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-clock-hour-3" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-12">
-                    <div className="mb-3 ">
                       <label className="form-label">Status</label>
                       <CommonSelect
                         className="select"
                         options={statusChoose}
-                        defaultValue={statusChoose[1]}
+                        defaultValue={editFormData ? statusChoose.find(s => s.value === editFormData.status) || statusChoose[0] : statusChoose[0]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, status: option.value })}
                       />
                     </div>
                   </div>
@@ -564,13 +740,15 @@ const AttendanceAdmin = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setEditFormData(null)}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleEditSubmit}
+                  disabled={!editFormData}
                 >
                   Save Changes
                 </button>
@@ -580,7 +758,8 @@ const AttendanceAdmin = () => {
         </div>
       </div>
       {/* /Edit Attendance */}
-      {/* Attendance Report */}
+
+      {/* Attendance Report Modal */}
       <div className="modal fade" id="attendance_report">
         <div className="modal-dialog modal-dialog-centered modal-lg">
           <div className="modal-content">
@@ -653,105 +832,16 @@ const AttendanceAdmin = () => {
                           <i className="ti ti-point-filled text-dark-transparent me-1" />
                           Total Working hours
                         </p>
-                        <h3>12h 36m</h3>
+                        <h3>{stats?.totalHoursWorked ? `${parseFloat(stats.totalHoursWorked).toFixed(1)}h` : '0h'}</h3>
                       </div>
                     </div>
                     <div className="col-xl-3">
                       <div className="mb-4">
                         <p className="d-flex align-items-center mb-1">
                           <i className="ti ti-point-filled text-success me-1" />
-                          Productive Hours
+                          Avg Hours
                         </p>
-                        <h3>08h 36m</h3>
-                      </div>
-                    </div>
-                    <div className="col-xl-3">
-                      <div className="mb-4">
-                        <p className="d-flex align-items-center mb-1">
-                          <i className="ti ti-point-filled text-warning me-1" />
-                          Break hours
-                        </p>
-                        <h3>22m 15s</h3>
-                      </div>
-                    </div>
-                    <div className="col-xl-3">
-                      <div className="mb-4">
-                        <p className="d-flex align-items-center mb-1">
-                          <i className="ti ti-point-filled text-info me-1" />
-                          Overtime
-                        </p>
-                        <h3>02h 15m</h3>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="row">
-                    <div className="col-md-8 mx-auto">
-                      <div
-                        className="progress bg-transparent-dark mb-3"
-                        style={{ height: 24 }}
-                      >
-                        <div
-                          className="progress-bar bg-success rounded me-2"
-                          role="progressbar"
-                          style={{ width: "18%" }}
-                        />
-                        <div
-                          className="progress-bar bg-warning rounded me-2"
-                          role="progressbar"
-                          style={{ width: "5%" }}
-                        />
-                        <div
-                          className="progress-bar bg-success rounded me-2"
-                          role="progressbar"
-                          style={{ width: "28%" }}
-                        />
-                        <div
-                          className="progress-bar bg-warning rounded me-2"
-                          role="progressbar"
-                          style={{ width: "17%" }}
-                        />
-                        <div
-                          className="progress-bar bg-success rounded me-2"
-                          role="progressbar"
-                          style={{ width: "22%" }}
-                        />
-                        <div
-                          className="progress-bar bg-warning rounded me-2"
-                          role="progressbar"
-                          style={{ width: "5%" }}
-                        />
-                        <div
-                          className="progress-bar bg-info rounded me-2"
-                          role="progressbar"
-                          style={{ width: "3%" }}
-                        />
-                        <div
-                          className="progress-bar bg-info rounded"
-                          role="progressbar"
-                          style={{ width: "2%" }}
-                        />
-                      </div>
-                    </div>
-                    <div className="co-md-12">
-                      <div className="d-flex align-items-center justify-content-between">
-                        <span className="fs-10">06:00</span>
-                        <span className="fs-10">07:00</span>
-                        <span className="fs-10">08:00</span>
-                        <span className="fs-10">09:00</span>
-                        <span className="fs-10">10:00</span>
-                        <span className="fs-10">11:00</span>
-                        <span className="fs-10">12:00</span>
-                        <span className="fs-10">01:00</span>
-                        <span className="fs-10">02:00</span>
-                        <span className="fs-10">03:00</span>
-                        <span className="fs-10">04:00</span>
-                        <span className="fs-10">05:00</span>
-                        <span className="fs-10">06:00</span>
-                        <span className="fs-10">07:00</span>
-                        <span className="fs-10">08:00</span>
-                        <span className="fs-10">09:00</span>
-                        <span className="fs-10">10:00</span>
-                        <span className="fs-10">11:00</span>
+                        <h3>{stats?.averageHoursPerDay || '0.00'}h</h3>
                       </div>
                     </div>
                   </div>

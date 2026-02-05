@@ -10,7 +10,8 @@ import {
     asyncHandler,
     buildConflictError,
     buildNotFoundError,
-    buildValidationError
+    buildValidationError,
+    buildForbiddenError
 } from '../../middleware/errorHandler.js';
 import {
     buildPagination,
@@ -18,7 +19,8 @@ import {
     sendCreated,
     sendSuccess
 } from '../../utils/apiResponse.js';
-import { broadcastLeaveEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
+import { broadcastLeaveEvents, getSocketIO, broadcastToCompany } from '../../utils/socketBroadcaster.js';
+import { generateId } from '../../utils/idGenerator.js';
 
 /**
  * Helper: Check for overlapping leave requests
@@ -83,7 +85,7 @@ async function getEmployeeLeaveBalance(collections, employeeId, leaveType) {
  */
 async function getEmployeeByClerkId(collections, clerkUserId) {
   return await collections.employees.findOne({
-    'account.userId': clerkUserId,
+    clerkUserId: clerkUserId,
     isDeleted: { $ne: true }
   });
 }
@@ -571,7 +573,7 @@ export const approveLeave = asyncHandler(async (req, res) => {
     status: 'approved',
     approvedBy: user.userId,
     approvedAt: new Date(),
-    approveComments: comments || '',
+    approvalComments: comments || '',
     updatedAt: new Date()
   };
 
@@ -670,6 +672,9 @@ export const rejectLeave = asyncHandler(async (req, res) => {
     { $set: updateObj }
   );
 
+  // Note: No balance restoration needed for pending leave rejection
+  // Balance is only deducted on approval, so pending rejection doesn't affect balance
+
   // Get updated leave
   const updatedLeave = await collections.leaves.findOne({ _id: new ObjectId(id) });
 
@@ -680,6 +685,120 @@ export const rejectLeave = asyncHandler(async (req, res) => {
   }
 
   return sendSuccess(res, updatedLeave, 'Leave request rejected successfully');
+});
+
+/**
+ * @desc    Cancel leave request
+ * @route   POST /api/leaves/:id/cancel
+ * @access  Private (All authenticated users)
+ */
+export const cancelLeave = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  const user = extractUser(req);
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid leave ID format');
+  }
+
+  console.log('[Leave Controller] cancelLeave - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const leave = await collections.leaves.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
+
+  if (!leave) {
+    throw buildNotFoundError('Leave request', id);
+  }
+
+  // Get Employee record to verify ownership
+  const employee = await getEmployeeByClerkId(collections, user.userId);
+
+  if (!employee || employee.employeeId !== leave.employeeId) {
+    // Allow admins to cancel any leave
+    const isAdmin = user.role === 'admin' || user.role === 'hr' || user.role === 'superadmin';
+    if (!isAdmin) {
+      throw buildConflictError('You can only cancel your own leave requests');
+    }
+  }
+
+  // Check if leave can be cancelled
+  if (leave.status === 'cancelled') {
+    throw buildConflictError('Leave is already cancelled');
+  }
+
+  if (leave.status === 'rejected') {
+    throw buildConflictError('Cannot cancel a rejected leave request');
+  }
+
+  // Check if leave has already started
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const leaveStartDate = new Date(leave.startDate);
+  leaveStartDate.setHours(0, 0, 0, 0);
+
+  if (leaveStartDate <= today && leave.status === 'approved') {
+    throw buildConflictError('Cannot cancel leave that has already started. Please contact HR.');
+  }
+
+  // Cancel leave
+  const updateObj = {
+    status: 'cancelled',
+    cancelledBy: user.userId,
+    cancelledAt: new Date(),
+    cancellationReason: reason || 'Cancelled by employee',
+    updatedAt: new Date()
+  };
+
+  await collections.leaves.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  // Restore balance if leave was previously approved
+  if (leave.status === 'approved') {
+    const employee = await collections.employees.findOne({
+      employeeId: leave.employeeId
+    });
+
+    if (employee && employee.leaveBalances) {
+      const balanceIndex = employee.leaveBalances.findIndex(
+        b => b.type === leave.leaveType
+      );
+
+      if (balanceIndex !== -1) {
+        // Restore the deducted balance
+        employee.leaveBalances[balanceIndex].used -= leave.duration;
+        employee.leaveBalances[balanceIndex].balance += leave.duration;
+
+        await collections.employees.updateOne(
+          { employeeId: leave.employeeId },
+          { $set: { leaveBalances: employee.leaveBalances } }
+        );
+
+        // Broadcast balance update
+        const io = getSocketIO(req);
+        if (io) {
+          broadcastLeaveEvents.balanceUpdated(io, user.companyId, employee._id, employee.leaveBalances);
+        }
+      }
+    }
+  }
+
+  // Get updated leave
+  const updatedLeave = await collections.leaves.findOne({ _id: new ObjectId(id) });
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastLeaveEvents.cancelled(io, user.companyId, updatedLeave, user.userId);
+  }
+
+  return sendSuccess(res, updatedLeave, 'Leave request cancelled successfully');
 });
 
 /**
@@ -720,6 +839,306 @@ export const getLeaveBalance = asyncHandler(async (req, res) => {
   return sendSuccess(res, balances, 'All leave balances retrieved successfully');
 });
 
+/**
+ * @desc    Get team leave requests (for managers)
+ * @route   GET /api/leaves/team
+ * @access  Private (Manager, Admin, HR, Superadmin)
+ */
+export const getTeamLeaves = asyncHandler(async (req, res) => {
+  const { page, limit, status, leaveType, department } = req.query;
+  const user = extractUser(req);
+
+  console.log('[Leave Controller] getTeamLeaves - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Get current employee (manager)
+  const currentEmployee = await getEmployeeByClerkId(collections, user.userId);
+
+  if (!currentEmployee) {
+    throw buildNotFoundError('Employee', user.userId);
+  }
+
+  // Build filter for team leaves
+  const filter = {
+    companyId: user.companyId,
+    isDeleted: { $ne: true }
+  };
+
+  // Apply status filter
+  if (status) {
+    filter.status = status;
+  }
+
+  // Apply leave type filter
+  if (leaveType) {
+    filter.leaveType = leaveType;
+  }
+
+  // Get team members based on role
+  let teamEmployeeIds = [];
+
+  if (user.role === 'admin' || user.role === 'hr' || user.role === 'superadmin') {
+    // Admins/HR can see all employees
+    const allEmployees = await collections.employees.find({
+      companyId: user.companyId,
+      isDeleted: { $ne: true }
+    }).toArray();
+    teamEmployeeIds = allEmployees.map(emp => emp.employeeId);
+  } else if (user.role === 'manager') {
+    // Managers can see their department employees
+    const deptFilter = {
+      companyId: user.companyId,
+      isDeleted: { $ne: true }
+    };
+
+    // Filter by department if specified, or use manager's department
+    if (department) {
+      deptFilter.departmentId = department;
+    } else if (currentEmployee.departmentId) {
+      deptFilter.departmentId = currentEmployee.departmentId;
+    }
+
+    const teamEmployees = await collections.employees.find(deptFilter).toArray();
+    teamEmployeeIds = teamEmployees.map(emp => emp.employeeId);
+  } else {
+    // Other roles can only see their own leaves
+    teamEmployeeIds = [currentEmployee.employeeId];
+  }
+
+  if (teamEmployeeIds.length === 0) {
+    return sendSuccess(res, [], 'No team members found');
+  }
+
+  filter.employeeId = { $in: teamEmployeeIds };
+
+  // Get total count
+  const total = await collections.leaves.countDocuments(filter);
+
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
+
+  // Get leave records
+  const leaves = await collections.leaves
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, leaves, 'Team leave requests retrieved successfully', 200, pagination);
+});
+
+/**
+ * @desc    Upload attachment for leave request
+ * @route   POST /api/leaves/:leaveId/attachments
+ * @access  Private
+ */
+export const uploadAttachment = asyncHandler(async (req, res) => {
+  const { leaveId } = req.params;
+  const user = extractUser(req);
+
+  console.log('[Leave Controller] uploadAttachment - leaveId:', leaveId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find leave request
+  const leave = await collections.leaves.findOne({
+    leaveId: leaveId,
+    companyId: user.companyId,
+    isDeleted: false
+  });
+
+  if (!leave) {
+    throw buildNotFoundError('Leave request', leaveId);
+  }
+
+  // Get Employee record
+  const employee = await getEmployeeByClerkId(collections, user.userId);
+
+  // Check authorization - employee can only upload to their own leaves, admins can upload to any
+  const isAdmin = user.role === 'admin' || user.role === 'hr' || user.role === 'superadmin';
+  if (leave.employeeId !== employee?.employeeId && !isAdmin) {
+    throw buildForbiddenError('Not authorized to upload attachments for this leave');
+  }
+
+  if (!req.file) {
+    throw buildValidationError('file', 'No file uploaded');
+  }
+
+  // Phase 2.3: Add file size and type validation
+  const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+  const ALLOWED_MIME_TYPES = [
+    'application/pdf',
+    'image/jpeg',
+    'image/png',
+    'image/jpg',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  ];
+
+  // Check file size
+  if (req.file.size > MAX_FILE_SIZE) {
+    throw buildValidationError('file', `File size exceeds maximum allowed size of 5MB. Your file is ${(req.file.size / (1024 * 1024)).toFixed(2)}MB`);
+  }
+
+  // Check file type
+  if (!ALLOWED_MIME_TYPES.includes(req.file.mimetype)) {
+    throw buildValidationError('file', `File type not allowed. Allowed types: PDF, JPEG, PNG, DOC, DOCX, XLS, XLSX`);
+  }
+
+  const attachment = {
+    attachmentId: generateId('ATT', user.companyId),
+    filename: req.file.filename,
+    originalName: req.file.originalname,
+    url: `/uploads/leave-attachments/${req.file.filename}`,
+    mimeType: req.file.mimetype,
+    size: req.file.size,
+    uploadedAt: new Date(),
+    uploadedBy: user.userId
+  };
+
+  // Initialize attachments array if it doesn't exist
+  const currentAttachments = leave.attachments || [];
+  const maxAttachments = 5;
+
+  if (currentAttachments.length >= maxAttachments) {
+    throw buildValidationError(`Maximum ${maxAttachments} attachments allowed per leave request`);
+  }
+
+  // Add attachment
+  await collections.leaves.updateOne(
+    { _id: leave._id },
+    {
+      $push: { attachments: attachment },
+      $set: { updatedAt: new Date() }
+    }
+  );
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastToCompany(io, user.companyId, 'leave:attachment_uploaded', {
+      leaveId: leave.leaveId,
+      attachment,
+      uploadedBy: user.userId
+    });
+  }
+
+  return sendSuccess(res, attachment, 'Attachment uploaded successfully');
+});
+
+/**
+ * @desc    Delete attachment from leave request
+ * @route   DELETE /api/leaves/:leaveId/attachments/:attachmentId
+ * @access  Private
+ */
+export const deleteAttachment = asyncHandler(async (req, res) => {
+  const { leaveId, attachmentId } = req.params;
+  const user = extractUser(req);
+
+  console.log('[Leave Controller] deleteAttachment - leaveId:', leaveId, 'attachmentId:', attachmentId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find leave request
+  const leave = await collections.leaves.findOne({
+    leaveId: leaveId,
+    companyId: user.companyId,
+    isDeleted: false
+  });
+
+  if (!leave) {
+    throw buildNotFoundError('Leave request', leaveId);
+  }
+
+  // Get Employee record
+  const employee = await getEmployeeByClerkId(collections, user.userId);
+
+  // Check authorization
+  const isAdmin = user.role === 'admin' || user.role === 'hr' || user.role === 'superadmin';
+  if (leave.employeeId !== employee?.employeeId && !isAdmin) {
+    throw buildForbiddenError('Not authorized to delete attachments from this leave');
+  }
+
+  // Find the attachment
+  const attachments = leave.attachments || [];
+  const attachmentIndex = attachments.findIndex(a => a.attachmentId === attachmentId);
+
+  if (attachmentIndex === -1) {
+    throw buildNotFoundError('Attachment', attachmentId);
+  }
+
+  const attachment = attachments[attachmentIndex];
+
+  // Delete file from filesystem
+  const fs = await import('fs');
+  const path = await import('path');
+  const filePath = path.join(process.cwd(), 'public', 'uploads', 'leave-attachments', attachment.filename);
+
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+    console.log('[Leave Controller] File deleted:', filePath);
+  }
+
+  // Remove attachment from database
+  await collections.leaves.updateOne(
+    { _id: leave._id },
+    {
+      $pull: { attachments: { attachmentId: attachmentId } },
+      $set: { updatedAt: new Date() }
+    }
+  );
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastToCompany(io, user.companyId, 'leave:attachment_deleted', {
+      leaveId: leave.leaveId,
+      attachmentId,
+      deletedBy: user.userId
+    });
+  }
+
+  return sendSuccess(res, { attachmentId }, 'Attachment deleted successfully');
+});
+
+/**
+ * @desc    Get attachments for leave request
+ * @route   GET /api/leaves/:leaveId/attachments
+ * @access  Private
+ */
+export const getAttachments = asyncHandler(async (req, res) => {
+  const { leaveId } = req.params;
+  const user = extractUser(req);
+
+  console.log('[Leave Controller] getAttachments - leaveId:', leaveId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Find leave request
+  const leave = await collections.leaves.findOne({
+    leaveId: leaveId,
+    companyId: user.companyId,
+    isDeleted: false
+  });
+
+  if (!leave) {
+    throw buildNotFoundError('Leave request', leaveId);
+  }
+
+  return sendSuccess(res, leave.attachments || [], 'Attachments retrieved successfully');
+});
+
 export default {
   getLeaves,
   getLeaveById,
@@ -730,5 +1149,10 @@ export default {
   getLeavesByStatus,
   approveLeave,
   rejectLeave,
-  getLeaveBalance
+  cancelLeave,
+  getLeaveBalance,
+  getTeamLeaves,
+  uploadAttachment,
+  deleteAttachment,
+  getAttachments
 };

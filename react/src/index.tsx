@@ -20,6 +20,7 @@ import { base_path } from "./environment";
 import store from "./core/data/redux/store";
 import { AuthProvider } from "./services/AuthProvider";
 import { SocketProvider } from "./SocketContext";
+import { NotificationProvider } from "./contexts/NotificationContext";
 
 // Expose Bootstrap globally so that data-bs-toggle="dropdown" and modal work
 (window as any).bootstrap = bootstrap;
@@ -44,11 +45,13 @@ root.render(
   >
     <AuthProvider>
       <SocketProvider>
-        <Provider store={store}>
-          <BrowserRouter basename={base_path}>
-            <ALLRoutes />
-          </BrowserRouter>
-        </Provider>
+        <NotificationProvider>
+          <Provider store={store}>
+            <BrowserRouter basename={base_path}>
+              <ALLRoutes />
+            </BrowserRouter>
+          </Provider>
+        </NotificationProvider>
       </SocketProvider>
     </AuthProvider>
   </ClerkProvider>

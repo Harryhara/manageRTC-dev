@@ -282,6 +282,66 @@ export const logQuery = (model, operation, duration) => {
 };
 
 /**
+ * HRM Business event logging
+ * @param {string} eventType - Event type (clock-in, clock-out, leave-request, etc.)
+ * @param {Object} data - Event data
+ */
+export const logHRMEvent = (eventType, data = {}) => {
+  logger.info('HRM Event', {
+    eventType,
+    ...data,
+    timestamp: new Date().toISOString()
+  });
+};
+
+/**
+ * Attendance specific logging
+ */
+export const logAttendanceEvent = (action, attendanceData, user) => {
+  logHRMEvent('attendance', {
+    action, // clock-in, clock-out, regularization, etc.
+    attendanceId: attendanceData.attendanceId || attendanceData._id,
+    employeeId: attendanceData.employeeId,
+    employeeName: attendanceData.employeeName,
+    performedBy: user?.userId,
+    companyId: user?.companyId,
+    details: attendanceData
+  });
+};
+
+/**
+ * Leave specific logging
+ */
+export const logLeaveEvent = (action, leaveData, user) => {
+  logHRMEvent('leave', {
+    action, // create, approve, reject, cancel, etc.
+    leaveId: leaveData.leaveId || leaveData._id,
+    employeeId: leaveData.employeeId,
+    employeeName: leaveData.employeeName,
+    leaveType: leaveData.leaveType,
+    status: leaveData.status,
+    duration: leaveData.duration,
+    performedBy: user?.userId,
+    companyId: user?.companyId,
+    details: leaveData
+  });
+};
+
+/**
+ * Employee specific logging
+ */
+export const logEmployeeEvent = (action, employeeData, user) => {
+  logHRMEvent('employee', {
+    action, // create, update, delete, sync, etc.
+    employeeId: employeeData.employeeId || employeeData._id,
+    employeeName: `${employeeData.firstName} ${employeeData.lastName}`,
+    performedBy: user?.userId,
+    companyId: user?.companyId,
+    details: employeeData
+  });
+};
+
+/**
  * Create a child logger with additional metadata
  * @param {Object} metadata - Additional metadata for child logger
  * @returns {Object} Child logger

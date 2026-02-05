@@ -1,10 +1,9 @@
 import { getTenantCollections } from "../../config/db.js";
-import { DateTime } from "luxon";
 
 /**
  * Holiday Resolver Helper
  * Processes holidays to handle yearly repeating logic
- * 
+ *
  * @param {Array} holidays - Raw holidays from database
  * @param {Date} referenceDate - Reference date for comparison (default: today)
  * @returns {Array} Processed holidays with normalized dates
@@ -61,7 +60,7 @@ const resolveHolidays = (holidays, referenceDate = new Date()) => {
 
 /**
  * Check if a date matches today (for repeating holidays, checks day+month only)
- * 
+ *
  * @param {Object} holiday - Holiday object with date and repeatsEveryYear
  * @param {Date} referenceDate - Date to compare against
  * @returns {Boolean}
@@ -69,7 +68,7 @@ const resolveHolidays = (holidays, referenceDate = new Date()) => {
 const isHolidayToday = (holiday, referenceDate = new Date()) => {
   const holidayDate = new Date(holiday.date);
   const checkDate = new Date(referenceDate);
-  
+
   checkDate.setHours(0, 0, 0, 0);
   holidayDate.setHours(0, 0, 0, 0);
 
@@ -91,11 +90,11 @@ const isHolidayToday = (holiday, referenceDate = new Date()) => {
  */
 export const getDashboardStats = async (companyId, year = null) => {
   console.log(`[HR Dashboard Service] Starting data fetch for companyId: ${companyId}`);
-  
+
   try {
     const collections = await getTenantCollections(companyId);
     console.log(`[HR Dashboard Service] Collections obtained successfully`);
-    
+
     const {
       employees,
       departments,
@@ -115,7 +114,7 @@ export const getDashboardStats = async (companyId, year = null) => {
     const currentDate = new Date();
     const thirtyDaysAgo = new Date(currentDate);
     thirtyDaysAgo.setDate(currentDate.getDate() - 30);
-    
+
     // Get today's date range (start and end of day)
     const todayStart = new Date(currentDate);
     todayStart.setHours(0, 0, 0, 0);
@@ -153,8 +152,12 @@ export const getDashboardStats = async (companyId, year = null) => {
       employees.countDocuments().catch(() => 0),
       employees.countDocuments({ status: "Active" }).catch(() => 0),
       employees.countDocuments({ status: "Inactive" }).catch(() => 0),
+      // New Joiners - count employees who joined in the last 30 days
       employees.countDocuments({
-        dateOfJoining: { $gte: thirtyDaysAgo.toISOString().split('T')[0] },
+        dateOfJoining: {
+          $gte: thirtyDaysAgo,
+          $lte: currentDate
+        },
       }).catch(() => 0),
 
       // Resignation Statistics (only approved resignations)
@@ -532,10 +535,10 @@ export const getDashboardStats = async (companyId, year = null) => {
       // All Active Holidays (will be processed for calendar, upcoming, and today)
       holidays
         .aggregate([
-          { 
-            $match: { 
+          {
+            $match: {
               status: "Active"
-            } 
+            }
           },
           {
             $lookup: {
@@ -573,7 +576,7 @@ export const getDashboardStats = async (companyId, year = null) => {
 
       // All Active and On Notice Employees (for birthdays and anniversaries)
       employees
-        .find({ 
+        .find({
           status: { $in: ["Active", "On Notice"] }
         })
         .project({
@@ -589,13 +592,56 @@ export const getDashboardStats = async (companyId, year = null) => {
         .catch(() => []),
     ]);
 
+    // Fetch resignation, termination, and promotion data for Dynamic Events
+    const [resignationData, terminationData, promotionData] = await Promise.all([
+      // Approved Resignations with notice period info
+      resignation
+        .find({ resignationStatus: "approved" })
+        .project({
+          _id: 1,
+          employeeId: 1,
+          noticeDate: 1,
+          resignationDate: 1,
+          lastWorkingDay: 1,
+        })
+        .toArray()
+        .catch(() => []),
+
+      // Processed Terminations
+      termination
+        .find({ status: "processed" })
+        .project({
+          _id: 1,
+          employeeId: 1,
+          terminationDate: 1,
+          terminationType: 1,
+        })
+        .toArray()
+        .catch(() => []),
+
+      // Promotions (if collection exists)
+      collections.promotion ?
+        collections.promotion
+          .find({ status: "approved" })
+          .project({
+            _id: 1,
+            employeeId: 1,
+            promotionDate: 1,
+            fromDesignation: 1,
+            toDesignation: 1,
+          })
+          .toArray()
+          .catch(() => []) :
+        Promise.resolve([]),
+    ]);
+
     console.log(`[HR Dashboard Service] Parallel queries completed successfully`);
 
     // Process holidays with resolver to handle repeating yearly holidays
     const processedHolidays = resolveHolidays(allHolidays, currentDate);
 
     // Filter today's holidays (including repeating ones by day+month)
-    const todaysHolidays = processedHolidays.filter(holiday => 
+    const todaysHolidays = processedHolidays.filter(holiday =>
       isHolidayToday(holiday, currentDate)
     );
 
@@ -626,7 +672,7 @@ export const getDashboardStats = async (companyId, year = null) => {
     // ============================================
     const today = new Date(currentDate);
     today.setHours(0, 0, 0, 0);
-    
+
     const employeeBirthdays = [];
     const employeeAnniversaries = [];
 
@@ -638,7 +684,7 @@ export const getDashboardStats = async (companyId, year = null) => {
           const birthdayDate = new Date(employee.personal.birthday);
           if (!isNaN(birthdayDate.getTime())) {
             const birthYear = birthdayDate.getFullYear();
-            
+
             // Only create birthday for current year if it's on or after the birth year
             if (currentYear >= birthYear) {
               // Create birthday for current year (repeats annually)
@@ -677,7 +723,7 @@ export const getDashboardStats = async (companyId, year = null) => {
           const joiningDate = new Date(employee.dateOfJoining);
           if (!isNaN(joiningDate.getTime())) {
             const joiningYear = joiningDate.getFullYear();
-            
+
             // Calculate years with company
             const yearsWithCompany = currentYear - joiningYear;
 
@@ -746,12 +792,13 @@ export const getDashboardStats = async (companyId, year = null) => {
     };
 
     employeesByStatus.forEach((item) => {
-      const status = item._id?.toLowerCase() || "inactive";
+      const status = item._id?.toLowerCase().replace(/\s+/g, '') || "inactive";
       if (status === "active") statusMap.active = item.count;
       else if (status === "inactive") statusMap.inactive = item.count;
       else if (status === "onnotice") statusMap.onNotice = item.count;
       else if (status === "terminated") statusMap.terminated = item.count;
       else if (status === "resigned") statusMap.resigned = item.count;
+      else if (status === "onleave") statusMap.inactive += item.count; // Count 'On Leave' as inactive
     });
 
     // Calculate growth percentages (mock for now - can be enhanced with historical data)
@@ -850,6 +897,26 @@ export const getDashboardStats = async (companyId, year = null) => {
           yearsWithCompany: anniversary.yearsWithCompany,
           type: anniversary.type,
           repeatsYearly: anniversary.repeatsYearly
+        })),
+        resignations: resignationData.map((resignation) => ({
+          _id: resignation._id.toString(),
+          employeeId: resignation.employeeId,
+          noticeDate: resignation.noticeDate,
+          resignationDate: resignation.resignationDate,
+          lastWorkingDay: resignation.lastWorkingDay,
+        })),
+        terminations: terminationData.map((termination) => ({
+          _id: termination._id.toString(),
+          employeeId: termination.employeeId,
+          terminationDate: termination.terminationDate,
+          terminationType: termination.terminationType,
+        })),
+        promotions: promotionData.map((promotion) => ({
+          _id: promotion._id.toString(),
+          employeeId: promotion.employeeId,
+          promotionDate: promotion.promotionDate,
+          fromDesignation: promotion.fromDesignation,
+          toDesignation: promotion.toDesignation,
         })),
       },
     };

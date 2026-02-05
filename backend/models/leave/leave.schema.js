@@ -87,7 +87,9 @@ const leaveSchema = new mongoose.Schema({
   reason: {
     type: String,
     required: [true, 'Reason is required'],
-    maxlength: 500
+    minlength: [3, 'Reason must be at least 3 characters long'],
+    maxlength: [500, 'Reason cannot exceed 500 characters'],
+    trim: true
   },
 
   // Detailed reason (for longer leaves)

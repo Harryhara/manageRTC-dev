@@ -584,6 +584,161 @@ export const broadcastLeaveEvents = {
 };
 
 /**
+ * Leave Type event broadcasters
+ */
+export const broadcastLeaveTypeEvents = {
+  /**
+   * Broadcast leave type created event
+   */
+  created: (io, companyId, leaveType) => {
+    broadcastToCompany(io, companyId, 'leaveType:created', {
+      leaveTypeId: leaveType.leaveTypeId,
+      name: leaveType.name,
+      code: leaveType.code,
+      isActive: leaveType.isActive,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast leave type updated event
+   */
+  updated: (io, companyId, leaveType) => {
+    broadcastToCompany(io, companyId, 'leaveType:updated', {
+      leaveTypeId: leaveType.leaveTypeId,
+      name: leaveType.name,
+      code: leaveType.code,
+      isActive: leaveType.isActive,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast leave type status toggled event
+   */
+  status_toggled: (io, companyId, leaveType) => {
+    broadcastToCompany(io, companyId, 'leaveType:status_toggled', {
+      leaveTypeId: leaveType.leaveTypeId,
+      name: leaveType.name,
+      isActive: leaveType.isActive,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast leave type deleted event
+   */
+  deleted: (io, companyId, leaveType) => {
+    broadcastToCompany(io, companyId, 'leaveType:deleted', {
+      leaveTypeId: leaveType.leaveTypeId,
+      name: leaveType.name,
+      code: leaveType.code,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Overtime event broadcasters
+ */
+export const broadcastOvertimeEvents = {
+  /**
+   * Broadcast overtime request created event
+   */
+  created: (io, companyId, overtimeRequest) => {
+    broadcastToCompany(io, companyId, 'overtime:created', {
+      overtimeId: overtimeRequest.overtimeId,
+      _id: overtimeRequest._id,
+      employee: overtimeRequest.employee,
+      employeeName: overtimeRequest.employeeName,
+      date: overtimeRequest.date,
+      requestedHours: overtimeRequest.requestedHours,
+      reason: overtimeRequest.reason,
+      status: overtimeRequest.status,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast overtime request approved event
+   */
+  approved: (io, companyId, overtimeRequest, approvedBy) => {
+    broadcastToCompany(io, companyId, 'overtime:approved', {
+      overtimeId: overtimeRequest.overtimeId,
+      _id: overtimeRequest._id,
+      employee: overtimeRequest.employee,
+      employeeName: overtimeRequest.employeeName,
+      date: overtimeRequest.date,
+      requestedHours: overtimeRequest.requestedHours,
+      approvedHours: overtimeRequest.approvedHours,
+      status: overtimeRequest.status,
+      approvedBy
+    });
+
+    // Notify the employee
+    if (overtimeRequest.employee) {
+      broadcastToUser(io, overtimeRequest.employee.toString(), 'overtime:your_overtime_approved', {
+        overtimeId: overtimeRequest.overtimeId,
+        date: overtimeRequest.date,
+        approvedHours: overtimeRequest.approvedHours
+      });
+    }
+  },
+
+  /**
+   * Broadcast overtime request rejected event
+   */
+  rejected: (io, companyId, overtimeRequest, rejectedBy, reason) => {
+    broadcastToCompany(io, companyId, 'overtime:rejected', {
+      overtimeId: overtimeRequest.overtimeId,
+      _id: overtimeRequest._id,
+      employee: overtimeRequest.employee,
+      employeeName: overtimeRequest.employeeName,
+      date: overtimeRequest.date,
+      requestedHours: overtimeRequest.requestedHours,
+      status: overtimeRequest.status,
+      rejectedBy,
+      reason
+    });
+
+    // Notify the employee
+    if (overtimeRequest.employee) {
+      broadcastToUser(io, overtimeRequest.employee.toString(), 'overtime:your_overtime_rejected', {
+        overtimeId: overtimeRequest.overtimeId,
+        date: overtimeRequest.date,
+        reason
+      });
+    }
+  },
+
+  /**
+   * Broadcast overtime request cancelled event
+   */
+  cancelled: (io, companyId, overtimeRequest, cancelledBy) => {
+    broadcastToCompany(io, companyId, 'overtime:cancelled', {
+      overtimeId: overtimeRequest.overtimeId,
+      _id: overtimeRequest._id,
+      employee: overtimeRequest.employee,
+      employeeName: overtimeRequest.employeeName,
+      date: overtimeRequest.date,
+      status: overtimeRequest.status,
+      cancelledBy
+    });
+  },
+
+  /**
+   * Broadcast overtime request deleted event
+   */
+  deleted: (io, companyId, overtimeId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'overtime:deleted', {
+      overtimeId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
  * Asset event broadcasters
  */
 export const broadcastAssetEvents = {
@@ -1250,6 +1405,152 @@ export const broadcastDesignationEvents = {
 };
 
 /**
+ * Holiday event broadcasters
+ */
+export const broadcastHolidayEvents = {
+  /**
+   * Broadcast holiday created event
+   */
+  created: (io, companyId, holiday) => {
+    broadcastToCompany(io, companyId, 'holiday:created', {
+      holidayId: holiday.holidayId,
+      name: holiday.name,
+      date: holiday.date,
+      type: holiday.type,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast holiday updated event
+   */
+  updated: (io, companyId, holiday) => {
+    broadcastToCompany(io, companyId, 'holiday:updated', {
+      holidayId: holiday.holidayId,
+      name: holiday.name,
+      date: holiday.date,
+      type: holiday.type,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast holiday deleted event
+   */
+  deleted: (io, companyId, holiday) => {
+    broadcastToCompany(io, companyId, 'holiday:deleted', {
+      holidayId: holiday.holidayId,
+      name: holiday.name,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
+ * Shift event broadcasters
+ */
+export const broadcastShiftEvents = {
+  /**
+   * Broadcast shift created event
+   */
+  created: (io, companyId, shift) => {
+    broadcastToCompany(io, companyId, 'shift:created', {
+      shiftId: shift.shiftId,
+      _id: shift._id,
+      name: shift.name,
+      code: shift.code,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      duration: shift.duration,
+      isDefault: shift.isDefault,
+      createdBy: shift.createdBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast shift updated event
+   */
+  updated: (io, companyId, shift) => {
+    broadcastToCompany(io, companyId, 'shift:updated', {
+      shiftId: shift.shiftId,
+      _id: shift._id,
+      name: shift.name,
+      code: shift.code,
+      startTime: shift.startTime,
+      endTime: shift.endTime,
+      duration: shift.duration,
+      isDefault: shift.isDefault,
+      updatedBy: shift.updatedBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast shift deleted event
+   */
+  deleted: (io, companyId, shiftId, deletedBy) => {
+    broadcastToCompany(io, companyId, 'shift:deleted', {
+      shiftId,
+      deletedBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast default shift changed event
+   */
+  defaultChanged: (io, companyId, shift) => {
+    broadcastToCompany(io, companyId, 'shift:default_changed', {
+      shiftId: shift.shiftId,
+      _id: shift._id,
+      name: shift.name,
+      code: shift.code,
+      updatedBy: shift.updatedBy,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast shift assigned to employee event
+   */
+  assigned: (io, companyId, assignment) => {
+    broadcastToCompany(io, companyId, 'shift:assigned', {
+      employeeId: assignment.employeeId,
+      employeeName: assignment.employeeName,
+      shiftId: assignment.shiftId,
+      shiftName: assignment.shiftName,
+      effectiveDate: assignment.effectiveDate,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast shift bulk assigned event
+   */
+  bulkAssigned: (io, companyId, assignment) => {
+    broadcastToCompany(io, companyId, 'shift:bulk_assigned', {
+      shiftId: assignment.shiftId,
+      shiftName: assignment.shiftName,
+      employeeCount: assignment.employeeCount,
+      effectiveDate: assignment.effectiveDate,
+      timestamp: new Date().toISOString()
+    });
+  },
+
+  /**
+   * Broadcast shift unassigned from employee event
+   */
+  unassigned: (io, companyId, assignment) => {
+    broadcastToCompany(io, companyId, 'shift:unassigned', {
+      employeeId: assignment.employeeId,
+      employeeName: assignment.employeeName,
+      timestamp: new Date().toISOString()
+    });
+  }
+};
+
+/**
  * Helper to get Socket.IO instance from request
  * In Express, we can attach io to app and access via req.app.get('io')
  */
@@ -1270,6 +1571,10 @@ export default {
   broadcastClientEvents,
   broadcastAttendanceEvents,
   broadcastLeaveEvents,
+  broadcastLeaveTypeEvents,
+  broadcastOvertimeEvents,
+  broadcastHolidayEvents,
+  broadcastShiftEvents,
   broadcastAssetEvents,
   broadcastTrainingEvents,
   broadcastActivityEvents,

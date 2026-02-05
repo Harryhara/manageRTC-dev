@@ -19,13 +19,20 @@ import {
   extractUser
 } from '../../utils/apiResponse.js';
 import { getSocketIO, broadcastAttendanceEvents } from '../../utils/socketBroadcaster.js';
+import {
+  generateAttendanceReport,
+  generateEmployeeAttendanceReport,
+  convertToCSV,
+  convertToExcel,
+  convertToPDF
+} from '../../utils/attendanceReportGenerator.js';
 
 /**
  * Helper: Get employee by clerk user ID
  */
 async function getEmployeeByClerkId(collections, clerkUserId) {
   return await collections.employees.findOne({
-    'account.userId': clerkUserId,
+    clerkUserId: clerkUserId,
     isDeleted: { $ne: true }
   });
 }
@@ -153,7 +160,15 @@ export const createAttendance = asyncHandler(async (req, res) => {
   const employee = await getEmployeeByClerkId(collections, user.userId);
 
   if (!employee) {
-    throw buildNotFoundError('Employee', user.userId);
+    return res.status(404).json({
+      success: false,
+      error: {
+        code: 'EMPLOYEE_RECORD_NOT_FOUND',
+        message: 'Employee record not found. Please sync your profile to create an employee record.',
+        needsSync: true,
+        syncEndpoint: '/api/employees/sync-my-employee'
+      }
+    });
   }
 
   // Check if already clocked in today
@@ -178,7 +193,8 @@ export const createAttendance = asyncHandler(async (req, res) => {
   // Prepare attendance data
   const attendanceToInsert = {
     attendanceId: `att_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-    employeeId: employee.employeeId,
+    employee: employee._id, // ObjectId reference for Mongoose features
+    employeeId: employee.employeeId, // String ID for efficient querying
     employeeName: `${employee.firstName} ${employee.lastName}`,
     date: new Date(),
     clockIn: {
@@ -468,8 +484,9 @@ export const getAttendanceByEmployee = asyncHandler(async (req, res) => {
   const { page, limit, startDate, endDate } = req.query;
   const user = extractUser(req);
 
-  if (!ObjectId.isValid(employeeId)) {
-    throw buildValidationError('employeeId', 'Invalid employee ID format');
+  // Validate employeeId (it's a string like "EMP-2026-0001", not an ObjectId)
+  if (!employeeId || typeof employeeId !== 'string' || !employeeId.trim()) {
+    throw buildValidationError('employeeId', 'Employee ID is required and must be a string');
   }
 
   console.log('[Attendance Controller] getAttendanceByEmployee - employeeId:', employeeId, 'companyId:', user.companyId);
@@ -711,6 +728,388 @@ export const bulkAttendanceAction = asyncHandler(async (req, res) => {
   }, `Bulk action completed: ${updatedCount} of ${attendanceIds.length} attendance records updated`);
 });
 
+/**
+ * @desc    Request attendance regularization
+ * @route   POST /api/attendance/:id/request-regularization
+ * @access  Private (All authenticated users)
+ */
+export const requestRegularization = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  const user = extractUser(req);
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid attendance ID format');
+  }
+
+  if (!reason || !reason.trim()) {
+    throw buildValidationError('reason', 'Reason is required for regularization request');
+  }
+
+  console.log('[Attendance Controller] requestRegularization - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const attendance = await collections.attendance.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
+
+  if (!attendance) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Get Employee record
+  const employee = await getEmployeeByClerkId(collections, user.userId);
+  if (!employee || employee.employeeId !== attendance.employeeId) {
+    const isAdmin = user.role === 'admin' || user.role === 'hr' || user.role === 'superadmin';
+    if (!isAdmin) {
+      throw buildConflictError('You can only request regularization for your own attendance');
+    }
+  }
+
+  // Check if regularization already requested
+  if (attendance.regularizationRequest?.requested) {
+    throw buildConflictError('Regularization already requested for this attendance');
+  }
+
+  // Create regularization request
+  const updateObj = {
+    'regularizationRequest.requested': true,
+    'regularizationRequest.reason': reason,
+    'regularizationRequest.requestedBy': user.userId,
+    'regularizationRequest.requestedAt': new Date(),
+    'regularizationRequest.status': 'pending',
+    updatedAt: new Date()
+  };
+
+  const result = await collections.attendance.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Get updated attendance
+  const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastAttendanceEvents.updated(io, user.companyId, updatedAttendance);
+  }
+
+  return sendSuccess(res, updatedAttendance, 'Regularization request submitted successfully');
+});
+
+/**
+ * @desc    Approve attendance regularization
+ * @route   POST /api/attendance/:id/approve-regularization
+ * @access  Private (Admin, HR, Manager)
+ */
+export const approveRegularization = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { comments } = req.body;
+  const user = extractUser(req);
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid attendance ID format');
+  }
+
+  console.log('[Attendance Controller] approveRegularization - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const attendance = await collections.attendance.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
+
+  if (!attendance) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Check if regularization is requested
+  if (!attendance.regularizationRequest?.requested) {
+    throw buildConflictError('No regularization request found for this attendance');
+  }
+
+  // Approve regularization
+  const updateObj = {
+    'regularizationRequest.status': 'approved',
+    'regularizationRequest.approvedBy': user.userId,
+    'regularizationRequest.approvedAt': new Date(),
+    'regularizationRequest.comments': comments || '',
+    isRegularized: true,
+    updatedAt: new Date()
+  };
+
+  const result = await collections.attendance.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Get updated attendance
+  const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastAttendanceEvents.updated(io, user.companyId, updatedAttendance);
+  }
+
+  return sendSuccess(res, updatedAttendance, 'Regularization approved successfully');
+});
+
+/**
+ * @desc    Reject attendance regularization
+ * @route   POST /api/attendance/:id/reject-regularization
+ * @access  Private (Admin, HR, Manager)
+ */
+export const rejectRegularization = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const { reason } = req.body;
+  const user = extractUser(req);
+
+  if (!ObjectId.isValid(id)) {
+    throw buildValidationError('id', 'Invalid attendance ID format');
+  }
+
+  if (!reason || !reason.trim()) {
+    throw buildValidationError('reason', 'Rejection reason is required');
+  }
+
+  console.log('[Attendance Controller] rejectRegularization - id:', id, 'companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  const attendance = await collections.attendance.findOne({
+    _id: new ObjectId(id),
+    isDeleted: { $ne: true }
+  });
+
+  if (!attendance) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Check if regularization is requested
+  if (!attendance.regularizationRequest?.requested) {
+    throw buildConflictError('No regularization request found for this attendance');
+  }
+
+  // Reject regularization
+  const updateObj = {
+    'regularizationRequest.status': 'rejected',
+    'regularizationRequest.rejectionReason': reason,
+    'regularizationRequest.rejectedBy': user.userId,
+    'regularizationRequest.rejectedAt': new Date(),
+    updatedAt: new Date()
+  };
+
+  const result = await collections.attendance.updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updateObj }
+  );
+
+  if (result.matchedCount === 0) {
+    throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Get updated attendance
+  const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
+
+  // Broadcast Socket.IO event
+  const io = getSocketIO(req);
+  if (io) {
+    broadcastAttendanceEvents.updated(io, user.companyId, updatedAttendance);
+  }
+
+  return sendSuccess(res, updatedAttendance, 'Regularization rejected successfully');
+});
+
+/**
+ * @desc    Get pending regularization requests
+ * @route   GET /api/attendance/regularization/pending
+ * @access  Private (Admin, HR, Manager)
+ */
+export const getPendingRegularizations = asyncHandler(async (req, res) => {
+  const { page, limit } = req.query;
+  const user = extractUser(req);
+
+  console.log('[Attendance Controller] getPendingRegularizations - companyId:', user.companyId);
+
+  // Get tenant collections
+  const collections = getTenantCollections(user.companyId);
+
+  // Build filter
+  const filter = {
+    'regularizationRequest.requested': true,
+    'regularizationRequest.status': 'pending',
+    isDeleted: { $ne: true }
+  };
+
+  const total = await collections.attendance.countDocuments(filter);
+
+  const pageNum = parseInt(page) || 1;
+  const limitNum = parseInt(limit) || 20;
+  const skip = (pageNum - 1) * limitNum;
+
+  const attendances = await collections.attendance
+    .find(filter)
+    .sort({ 'regularizationRequest.requestedAt': -1 })
+    .skip(skip)
+    .limit(limitNum)
+    .toArray();
+
+  const pagination = buildPagination(pageNum, limitNum, total);
+
+  return sendSuccess(res, attendances, 'Pending regularization requests retrieved successfully', 200, pagination);
+});
+
+/**
+ * @desc    Generate attendance report
+ * @route   POST /api/attendance/report
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const generateReport = asyncHandler(async (req, res) => {
+  const { startDate, endDate, employeeId, status, format = 'json' } = req.body;
+  const user = extractUser(req);
+
+  if (!startDate || !endDate) {
+    throw buildValidationError('startDate/endDate', 'Start date and end date are required');
+  }
+
+  console.log('[Attendance Controller] generateReport - companyId:', user.companyId);
+
+  // Generate report data
+  const reportData = await generateAttendanceReport(user.companyId, {
+    startDate: new Date(startDate),
+    endDate: new Date(endDate),
+    employeeId,
+    status
+  });
+
+  // Convert based on format
+  switch (format) {
+    case 'csv':
+      const csvData = convertToCSV(reportData);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="attendance-report-${Date.now()}.csv"`);
+      return res.send(csvData);
+
+    case 'excel':
+      const excelData = convertToExcel(reportData);
+      return sendSuccess(res, excelData, 'Attendance report generated (Excel format)', 200);
+
+    case 'pdf':
+      const pdfData = convertToPDF(reportData);
+      return sendSuccess(res, pdfData, 'Attendance report generated (PDF format)', 200);
+
+    case 'json':
+    default:
+      return sendSuccess(res, reportData, 'Attendance report generated successfully');
+  }
+});
+
+/**
+ * @desc    Generate employee attendance report
+ * @route   POST /api/attendance/report/employee/:employeeId
+ * @access  Private (Admin, HR, Superadmin, Employee for own)
+ */
+export const generateEmployeeReport = asyncHandler(async (req, res) => {
+  const { employeeId } = req.params;
+  const { startDate, endDate, format = 'json' } = req.body;
+  const user = extractUser(req);
+
+  // Validate employeeId (it's a string like "EMP-2026-0001", not an ObjectId)
+  if (!employeeId || typeof employeeId !== 'string' || !employeeId.trim()) {
+    throw buildValidationError('employeeId', 'Employee ID is required and must be a string');
+  }
+
+  if (!startDate || !endDate) {
+    throw buildValidationError('startDate/endDate', 'Start date and end date are required');
+  }
+
+  console.log('[Attendance Controller] generateEmployeeReport - companyId:', user.companyId);
+
+  // Generate employee report data
+  const reportData = await generateEmployeeAttendanceReport(
+    user.companyId,
+    employeeId,
+    new Date(startDate),
+    new Date(endDate)
+  );
+
+  // Convert based on format
+  switch (format) {
+    case 'csv':
+      const csvData = convertToCSV(reportData);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="attendance-report-${employeeId}-${Date.now()}.csv"`);
+      return res.send(csvData);
+
+    case 'excel':
+      const excelData = convertToExcel(reportData);
+      return sendSuccess(res, excelData, 'Employee attendance report generated (Excel format)', 200);
+
+    case 'pdf':
+      const pdfData = convertToPDF(reportData);
+      return sendSuccess(res, pdfData, 'Employee attendance report generated (PDF format)', 200);
+
+    case 'json':
+    default:
+      return sendSuccess(res, reportData, 'Employee attendance report generated successfully');
+  }
+});
+
+/**
+ * @desc    Export attendance data
+ * @route   GET /api/attendance/export
+ * @access  Private (Admin, HR, Superadmin)
+ */
+export const exportAttendance = asyncHandler(async (req, res) => {
+  const { startDate, endDate, employeeId, format = 'csv' } = req.query;
+  const user = extractUser(req);
+
+  const start = startDate ? new Date(startDate) : new Date(new Date().setDate(1));
+  const end = endDate ? new Date(endDate) : new Date();
+
+  console.log('[Attendance Controller] exportAttendance - companyId:', user.companyId);
+
+  // Generate report data
+  const reportData = await generateAttendanceReport(user.companyId, {
+    startDate: start,
+    endDate: end,
+    employeeId
+  });
+
+  // Export based on format
+  switch (format) {
+    case 'csv':
+      const csvData = convertToCSV(reportData);
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="attendance-export-${Date.now()}.csv"`);
+      return res.send(csvData);
+
+    case 'excel':
+    case 'json':
+    default:
+      const excelData = convertToExcel(reportData);
+      res.setHeader('Content-Type', 'application/json');
+      res.setHeader('Content-Disposition', `attachment; filename="attendance-export-${Date.now()}.json"`);
+      return res.json(excelData);
+  }
+});
+
 export default {
   getAttendances,
   getAttendanceById,
@@ -721,5 +1120,12 @@ export default {
   getAttendanceByDateRange,
   getAttendanceByEmployee,
   getAttendanceStats,
-  bulkAttendanceAction
+  bulkAttendanceAction,
+  requestRegularization,
+  approveRegularization,
+  rejectRegularization,
+  getPendingRegularizations,
+  generateReport,
+  generateEmployeeReport,
+  exportAttendance
 };

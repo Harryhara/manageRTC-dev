@@ -111,15 +111,32 @@ export const authenticate = async (req, res, next) => {
     });
 
     // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
-    // Auto-assigning companyId for admin/hr users in development
-    // This matches the Socket.IO authentication behavior
+    // In development mode, if admin/hr users don't have a companyId, use the DEV_COMPANY_ID from env
     // This is a TEMPORARY FIX that MUST be removed before production deployment!
-    if (isDevelopment && (role === 'admin' || role === 'hr') && !companyId) {
-      companyId = '68443081dcdfe43152aebf80';
-      console.warn(
-        `🔧 DEVELOPMENT WORKAROUND: Auto-assigning companyId ${companyId} to ${role} user`
-      );
-      console.warn('⚠️ This hardcoded companyId assignment MUST be removed before production!');
+    // This matches the Socket.IO authentication behavior
+    if (isDevelopment && (role === "admin" || role === "hr") && !companyId) {
+      const devCompanyId = process.env.DEV_COMPANY_ID;
+      if (devCompanyId) {
+        companyId = devCompanyId;
+        console.warn(
+          `🔧 DEVELOPMENT WORKAROUND: Using DEV_COMPANY_ID ${companyId} for ${role} user`
+        );
+      } else {
+        console.error(
+          '❌ SECURITY ERROR: Admin/HR user missing companyId and DEV_COMPANY_ID not set in environment!'
+        );
+        console.error(
+          '⚠️ Please either set the companyId in Clerk user metadata or set DEV_COMPANY_ID environment variable'
+        );
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Company ID not found in user profile. Please contact system administrator.',
+            requestId: req.id || 'no-id',
+          },
+        });
+      }
     }
 
     // Attach user info to request (same structure as Socket.IO)
@@ -319,8 +336,12 @@ export const attachRequestId = (req, res, next) => {
   next();
 };
 
+// Export alias for compatibility with existing code
+export const authenticateUser = authenticate;
+
 export default {
   authenticate,
+  authenticateUser,
   requireRole,
   requireCompany,
   optionalAuth,

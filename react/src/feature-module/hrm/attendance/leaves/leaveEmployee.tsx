@@ -1,38 +1,246 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { all_routes } from "../../../router/all_routes";
 import Table from "../../../../core/common/dataTable/index";
 import CommonSelect from "../../../../core/common/commonSelect";
+import { useLeaveREST, statusDisplayMap, leaveTypeDisplayMap, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
 import PredefinedDateRanges from "../../../../core/common/datePicker";
 import ImageWithBasePath from "../../../../core/common/imageWithBasePath";
-import { DatePicker } from "antd";
-import { leaveemployee_details } from "../../../../core/data/json/leaveemployee_details";
+import { DatePicker, Spin, message } from "antd";
 import CollapseHeader from "../../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../../core/common/footer";
 
+// Loading spinner component
+const LoadingSpinner = () => (
+  <div style={{ textAlign: 'center', padding: '50px' }}>
+    <Spin size="large" />
+  </div>
+);
+
+// Status badge component
+const StatusBadge = ({ status }: { status: LeaveStatus }) => {
+  const config = statusDisplayMap[status] || statusDisplayMap.pending;
+  return (
+    <span
+      className={`rounded-circle ${config.badgeClass} d-flex justify-content-center align-items-center me-2`}
+    >
+      <i className={`ti ti-point-filled ${config.color}`} />
+    </span>
+  );
+};
+
+// Leave type badge component
+const LeaveTypeBadge = ({ leaveType }: { leaveType: string }) => {
+  const displayType = leaveTypeDisplayMap[leaveType] || leaveType;
+  return (
+    <span className="fs-14 fw-medium d-flex align-items-center">
+      {displayType}
+      <Link
+        to="#"
+        className="ms-2"
+        data-bs-toggle="tooltip"
+        data-bs-placement="right"
+        title="Leave details"
+      >
+        <i className="ti ti-info-circle text-info" />
+      </Link>
+    </span>
+  );
+};
+
 const LeaveEmployee = () => {
-  const data = leaveemployee_details;
+  // API hook for employee's leaves
+  const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance, createLeave, updateLeave } = useLeaveREST();
+
+  // Local state for balance
+  const [balances, setBalances] = useState<Record<string, { total: number; used: number; balance: number }>>({
+    annual: { total: 12, used: 5, balance: 7 },
+    medical: { total: 12, used: 1, balance: 11 },
+    casual: { total: 12, used: 2, balance: 10 },
+    other: { total: 5, used: 0, balance: 5 },
+  });
+
+  // Form state for Add Leave modal
+  const [addFormData, setAddFormData] = useState({
+    leaveType: '',
+    startDate: null as any,
+    endDate: null as any,
+    session: 'Full Day',
+    reason: '',
+  });
+
+  // Form state for Edit Leave modal
+  const [editFormData, setEditFormData] = useState<{
+    _id: string;
+    leaveType: string;
+    startDate: any;
+    endDate: any;
+    session: string;
+    reason: string;
+  } | null>(null);
+
+  // Fetch employee leaves on mount
+  useEffect(() => {
+    fetchMyLeaves();
+    // Also fetch balance
+    fetchBalanceData();
+  }, []);
+
+  // Fetch balance data
+  const fetchBalanceData = async () => {
+    const balanceData = await getLeaveBalance();
+    if (balanceData && typeof balanceData === 'object') {
+      // Transform balance data to UI format
+      const transformedBalances: Record<string, { total: number; used: number; balance: number }> = {};
+      Object.entries(balanceData).forEach(([key, value]: [string, any]) => {
+        if (value && typeof value === 'object') {
+          transformedBalances[key] = {
+            total: value.total || 0,
+            used: value.used || 0,
+            balance: value.balance || 0,
+          };
+        }
+      });
+      setBalances(transformedBalances);
+    }
+  };
+
+  // Transform leaves for table display
+  const data = leaves.map((leave) => ({
+    key: leave._id,
+    _id: leave._id,
+    LeaveType: leave.leaveType,
+    From: formatDate(leave.startDate),
+    To: formatDate(leave.endDate),
+    NoOfDays: `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
+    Status: leave.status,
+    ApprovedBy: leave.approvedByName || "Pending",
+    Roll: "Employee", // Should come from employee data
+    Image: "user-32.jpg", // Default image
+    rawLeave: leave,
+  }));
+
+  // Helper function to format dates
+  function formatDate(dateString: string): string {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+  }
+
+  // Handler for cancel leave
+  const handleCancelLeave = async (leaveId: string) => {
+    const reason = prompt("Please enter cancellation reason (optional):");
+    const success = await cancelLeave(leaveId, reason || "Cancelled by employee");
+    if (success) {
+      fetchMyLeaves(); // Refresh list
+      fetchBalanceData(); // Refresh balance
+    }
+  };
+
+  // Handler for Add Leave form submission
+  const handleAddLeaveSubmit = async () => {
+    if (!addFormData.leaveType) {
+      message.error('Please select a leave type');
+      return;
+    }
+    if (!addFormData.startDate) {
+      message.error('Please select a start date');
+      return;
+    }
+    if (!addFormData.endDate) {
+      message.error('Please select an end date');
+      return;
+    }
+    if (!addFormData.reason.trim()) {
+      message.error('Please provide a reason for the leave');
+      return;
+    }
+
+    const success = await createLeave({
+      leaveType: addFormData.leaveType as any,
+      startDate: addFormData.startDate.format('YYYY-MM-DD'),
+      endDate: addFormData.endDate.format('YYYY-MM-DD'),
+      reason: addFormData.reason,
+    });
+
+    if (success) {
+      // Reset form and close modal
+      setAddFormData({
+        leaveType: '',
+        startDate: null,
+        endDate: null,
+        session: 'Full Day',
+        reason: '',
+      });
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('add_leaves');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchMyLeaves();
+      fetchBalanceData();
+    }
+  };
+
+  // Handler for Edit Leave button click
+  const handleEditClick = (leave: any) => {
+    setEditFormData({
+      _id: leave._id,
+      leaveType: leave.leaveType,
+      startDate: leave.startDate,
+      endDate: leave.endDate,
+      session: 'Full Day',
+      reason: leave.reason || '',
+    });
+  };
+
+  // Handler for Edit Leave form submission
+  const handleEditLeaveSubmit = async () => {
+    if (!editFormData) return;
+
+    if (!editFormData.leaveType) {
+      message.error('Please select a leave type');
+      return;
+    }
+    if (!editFormData.startDate) {
+      message.error('Please select a start date');
+      return;
+    }
+    if (!editFormData.endDate) {
+      message.error('Please select an end date');
+      return;
+    }
+    if (!editFormData.reason.trim()) {
+      message.error('Please provide a reason for the leave');
+      return;
+    }
+
+    const success = await updateLeave(editFormData._id, {
+      leaveType: editFormData.leaveType as any,
+      startDate: editFormData.startDate,
+      endDate: editFormData.endDate,
+      reason: editFormData.reason,
+    });
+
+    if (success) {
+      setEditFormData(null);
+      // Close modal using Bootstrap API
+      const modalEl = document.getElementById('edit_leaves');
+      if (modalEl) {
+        const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
+        if (modal) modal.hide();
+      }
+      // Refresh data
+      fetchMyLeaves();
+      fetchBalanceData();
+    }
+  };
   const columns = [
     {
       title: "Leave Type",
       dataIndex: "LeaveType",
-      render: (text: String, record: any) => (
-        <div className="d-flex align-items-center">
-          <p className="fs-14 fw-medium d-flex align-items-center mb-0">
-            {record.LeaveType}
-          </p>
-          <Link
-            to="#"
-            className="ms-2"
-            data-bs-toggle="tooltip"
-            data-bs-placement="right"
-            data-bs-title="I am currently experiencing a fever and
-                                          feeling unwell."
-          >
-            <i className="ti ti-info-circle text-info" />
-          </Link>
-        </div>
-      ),
+      render: (leaveType: string) => <LeaveTypeBadge leaveType={leaveType} />,
       sorter: (a: any, b: any) => a.LeaveType.length - b.LeaveType.length,
     },
     {
@@ -75,84 +283,33 @@ const LeaveEmployee = () => {
     {
       title: "Status",
       dataIndex: "Status",
-      render: (text: String, record: any) => (
-        <div className="dropdown">
-          <Link
-            to="#"
-            className="dropdown-toggle btn btn-sm btn-white d-inline-flex align-items-center"
-            data-bs-toggle="dropdown"
-          >
-            <span
-              className={`rounded-circle ${
-                text === "Approved"
-                  ? "bg-transparent-success"
-                  : text === "New"
-                  ? "bg-transparent-purple"
-                  : "bg-transparent-danger"
-              } d-flex justify-content-center align-items-center me-2`}
-            >
-              <i
-                className={`ti ti-point-filled ${
-                  text === "Approved"
-                    ? "text-success"
-                    : text === "New"
-                    ? "text-purple"
-                    : "text-danger"
-                }`}
-              />
-            </span>{" "}
-            {text}
-          </Link>
-          <ul className="dropdown-menu  dropdown-menu-end p-3">
-            <li>
-              <Link
-                to="#"
-                className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
-              >
-                <span className="rounded-circle bg-transparent-success d-flex justify-content-center align-items-center me-2">
-                  <i className="ti ti-point-filled text-success" />
-                </span>
-                Approved
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="#"
-                className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
-              >
-                <span className="rounded-circle bg-transparent-danger d-flex justify-content-center align-items-center me-2">
-                  <i className="ti ti-point-filled text-danger" />
-                </span>
-                Declined
-              </Link>
-            </li>
-            <li>
-              <Link
-                to="#"
-                className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
-              >
-                <span className="rounded-circle bg-transparent-purple d-flex justify-content-center align-items-center me-2">
-                  <i className="ti ti-point-filled text-purple" />
-                </span>
-                New
-              </Link>
-            </li>
-          </ul>
-        </div>
-      ),
-      sorter: (a: any, b: any) => a.Status.length - b.Status.length,
+      render: (status: LeaveStatus) => <StatusBadge status={status} />,
+      sorter: (a: any, b: any) => a.Status.localeCompare(b.Status),
     },
     {
       title: "",
       dataIndex: "actions",
-      render: () => (
+      render: (_: any, record: any) => (
         <div className="action-icon d-inline-flex">
+          {/* Show cancel button for pending leaves */}
+          {record.Status === 'pending' && (
+            <Link
+              to="#"
+              className="me-2"
+              data-bs-toggle="tooltip"
+              title="Cancel Leave"
+              onClick={() => handleCancelLeave(record._id)}
+            >
+              <i className="ti ti-x text-warning" style={{ fontSize: '18px' }} />
+            </Link>
+          )}
           <Link
             to="#"
             className="me-2"
             data-bs-toggle="modal"
             data-inert={true}
             data-bs-target="#edit_leaves"
+            onClick={() => handleEditClick(record.rawLeave)}
           >
             <i className="ti ti-edit" />
           </Link>
@@ -169,18 +326,50 @@ const LeaveEmployee = () => {
     },
   ];
 
+  // Dropdown options with proper backend values
   const leavetype = [
-    { value: "Select", label: "Select" },
-    { value: "Medical Leave", label: "Medical Leave" },
-    { value: "Casual Leave", label: "Casual Leave" },
-    { value: "Annual Leave", label: "Annual Leave" },
+    { value: "", label: "All Types" },
+    { value: "sick", label: "Medical Leave" },
+    { value: "casual", label: "Casual Leave" },
+    { value: "earned", label: "Annual Leave" },
   ];
+
+  const statusOptions = [
+    { value: "", label: "All Status" },
+    { value: "pending", label: "Pending" },
+    { value: "approved", label: "Approved" },
+    { value: "rejected", label: "Rejected" },
+  ];
+
   const selectChoose = [
     { value: "Select", label: "Select" },
     { value: "Full Day", label: "Full Day" },
     { value: "First Half", label: "First Half" },
     { value: "Second Half", label: "Second Half" },
   ];
+
+  // Filter handlers
+  const handleStatusFilter = (status: LeaveStatus) => {
+    // Re-fetch with status filter
+    fetchMyLeaves({ status });
+  };
+
+  const handleLeaveTypeFilter = (leaveType: LeaveType) => {
+    // Re-fetch with leave type filter
+    fetchMyLeaves({ leaveType });
+  };
+
+  // Calculate stats from leaves data
+  const stats = {
+    annualLeaves: leaves.filter(l => l.leaveType === 'earned').length,
+    medicalLeaves: leaves.filter(l => l.leaveType === 'sick').length,
+    casualLeaves: leaves.filter(l => l.leaveType === 'casual').length,
+    otherLeaves: leaves.filter(l => !['sick', 'casual', 'earned'].includes(l.leaveType)).length,
+  };
+
+  // Calculate total leaves and total remaining
+  const totalLeaves = leaves.length;
+  const totalRemaining = Object.values(balances).reduce((sum, b) => sum + b.balance, 0);
 
   const getModalContainer = () => {
     const modalElement = document.getElementById("modal-datepicker");
@@ -263,7 +452,7 @@ const LeaveEmployee = () => {
                   <div className="d-flex align-items-center justify-content-between">
                     <div className="text-start">
                       <p className="mb-1">Annual Leaves</p>
-                      <h4>05</h4>
+                      <h4>{balances.annual?.used || 0}</h4>
                     </div>
                     <div className="d-flex">
                       <div className="flex-shrink-0 me-2">
@@ -274,7 +463,7 @@ const LeaveEmployee = () => {
                     </div>
                   </div>
                   <span className="badge bg-secondary-transparent">
-                    Remaining Leaves : 07
+                    Remaining Leaves : {balances.annual?.balance || 0}
                   </span>
                 </div>
               </div>
@@ -285,7 +474,7 @@ const LeaveEmployee = () => {
                   <div className="d-flex align-items-center justify-content-between">
                     <div className="text-start">
                       <p className="mb-1">Medical Leaves</p>
-                      <h4>11</h4>
+                      <h4>{balances.medical?.used || 0}</h4>
                     </div>
                     <div className="d-flex">
                       <div className="flex-shrink-0 me-2">
@@ -296,7 +485,7 @@ const LeaveEmployee = () => {
                     </div>
                   </div>
                   <span className="badge bg-info-transparent">
-                    Remaining Leaves : 01
+                    Remaining Leaves : {balances.medical?.balance || 0}
                   </span>
                 </div>
               </div>
@@ -307,7 +496,7 @@ const LeaveEmployee = () => {
                   <div className="d-flex align-items-center justify-content-between">
                     <div className="text-start">
                       <p className="mb-1">Casual Leaves</p>
-                      <h4>02</h4>
+                      <h4>{balances.casual?.used || 0}</h4>
                     </div>
                     <div className="d-flex">
                       <div className="flex-shrink-0 me-2">
@@ -318,7 +507,7 @@ const LeaveEmployee = () => {
                     </div>
                   </div>
                   <span className="badge bg-transparent-purple">
-                    Remaining Leaves : 10
+                    Remaining Leaves : {balances.casual?.balance || 0}
                   </span>
                 </div>
               </div>
@@ -329,7 +518,7 @@ const LeaveEmployee = () => {
                   <div className="d-flex align-items-center justify-content-between">
                     <div className="text-start">
                       <p className="mb-1">Other Leaves</p>
-                      <h4>07</h4>
+                      <h4>{balances.other?.used || 0}</h4>
                     </div>
                     <div className="d-flex">
                       <div className="flex-shrink-0 me-2">
@@ -340,7 +529,7 @@ const LeaveEmployee = () => {
                     </div>
                   </div>
                   <span className="badge bg-pink-transparent">
-                    Remaining Leaves : 05
+                    Remaining Leaves : {balances.other?.balance || 0}
                   </span>
                 </div>
               </div>
@@ -353,10 +542,10 @@ const LeaveEmployee = () => {
               <div className="d-flex">
                 <h5 className="me-2">Leave List</h5>
                 <span className="badge bg-primary-transparent me-2">
-                  Total Leaves : 48
+                  Total Leaves : {totalLeaves}
                 </span>
                 <span className="badge bg-secondary-transparent">
-                  Total Remaining Leaves : 23
+                  Total Remaining Leaves : {totalRemaining}
                 </span>
               </div>
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap row-gap-3">
@@ -377,21 +566,20 @@ const LeaveEmployee = () => {
                     Leave Type
                   </Link>
                   <ul className="dropdown-menu  dropdown-menu-end p-3">
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Medical Leave
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Casual Leave
-                      </Link>
-                    </li>
-                    <li>
-                      <Link to="#" className="dropdown-item rounded-1">
-                        Annual Leave
-                      </Link>
-                    </li>
+                    {leavetype.map((option) => (
+                      <li key={option.value}>
+                        <Link
+                          to="#"
+                          className="dropdown-item rounded-1"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleLeaveTypeFilter(option.value as LeaveType);
+                          }}
+                        >
+                          {option.label}
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 </div>
                 <div className="dropdown me-3">
@@ -429,39 +617,42 @@ const LeaveEmployee = () => {
                     Select Status
                   </Link>
                   <ul className="dropdown-menu  dropdown-menu-end p-3">
-                    <li>
-                      <Link
-                        to="#"
-                        className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
-                      >
-                        <span className="rounded-circle bg-transparent-success d-flex justify-content-center align-items-center me-2">
-                          <i className="ti ti-point-filled text-success" />
-                        </span>
-                        Approved
-                      </Link>
-                    </li>
-                    <li>
-                      <Link
-                        to="#"
-                        className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
-                      >
-                        <span className="rounded-circle bg-transparent-danger d-flex justify-content-center align-items-center me-2">
-                          <i className="ti ti-point-filled text-danger" />
-                        </span>
-                        Declined
-                      </Link>
-                    </li>
-                    <li>
-                      <Link
-                        to="#"
-                        className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
-                      >
-                        <span className="rounded-circle bg-transparent-purple d-flex justify-content-center align-items-center me-2">
-                          <i className="ti ti-point-filled text-purple" />
-                        </span>
-                        New
-                      </Link>
-                    </li>
+                    {statusOptions.map((option) => {
+                      if (option.value === "") {
+                        return (
+                          <li key={option.value}>
+                            <Link
+                              to="#"
+                              className="dropdown-item rounded-1"
+                              onClick={(e) => {
+                                e.preventDefault();
+                                handleStatusFilter(option.value as LeaveStatus);
+                              }}
+                            >
+                              {option.label}
+                            </Link>
+                          </li>
+                        );
+                      }
+                      const config = statusDisplayMap[option.value as LeaveStatus];
+                      return (
+                        <li key={option.value}>
+                          <Link
+                            to="#"
+                            className="dropdown-item rounded-1 d-flex justify-content-start align-items-center"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleStatusFilter(option.value as LeaveStatus);
+                            }}
+                          >
+                            <span className={`rounded-circle ${config.badgeClass} d-flex justify-content-center align-items-center me-2`}>
+                              <i className={`ti ti-point-filled ${config.color}`} />
+                            </span>
+                            {config.label}
+                          </Link>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
                 <div className="dropdown">
@@ -503,7 +694,11 @@ const LeaveEmployee = () => {
               </div>
             </div>
             <div className="card-body p-0">
-              <Table dataSource={data} columns={columns} Selection={true} />
+              {loading ? (
+                <LoadingSpinner />
+              ) : (
+                <Table dataSource={data} columns={columns} Selection={true} />
+              )}
             </div>
           </div>
           {/* /Leaves list */}
@@ -522,6 +717,13 @@ const LeaveEmployee = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setAddFormData({
+                  leaveType: '',
+                  startDate: null,
+                  endDate: null,
+                  session: 'Full Day',
+                  reason: '',
+                })}
               >
                 <i className="ti ti-x" />
               </button>
@@ -536,6 +738,7 @@ const LeaveEmployee = () => {
                         className="select"
                         options={leavetype}
                         defaultValue={leavetype[0]}
+                        onChange={(option: any) => setAddFormData({ ...addFormData, leaveType: option.value })}
                       />
                     </div>
                   </div>
@@ -551,6 +754,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={addFormData.startDate}
+                          onChange={(date) => setAddFormData({ ...addFormData, startDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -570,24 +775,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
-                        />
-                        <span className="input-icon-addon">
-                          <i className="ti ti-calendar text-gray-7" />
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="col-md-6">
-                    <div className="mb-3">
-                      <div className="input-icon-end position-relative">
-                        <DatePicker
-                          className="form-control datetimepicker"
-                          format={{
-                            format: "DD-MM-YYYY",
-                            type: "mask",
-                          }}
-                          getPopupContainer={getModalContainer}
-                          placeholder="DD-MM-YYYY"
+                          value={addFormData.endDate}
+                          onChange={(date) => setAddFormData({ ...addFormData, endDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -601,13 +790,14 @@ const LeaveEmployee = () => {
                         className="select"
                         options={selectChoose}
                         defaultValue={selectChoose[0]}
+                        onChange={(option: any) => setAddFormData({ ...addFormData, session: option.value })}
                       />
                     </div>
                   </div>
                   <div className="col-md-6">
                     <div className="mb-3">
                       <label className="form-label">No of Days</label>
-                      <input type="text" className="form-control" disabled />
+                      <input type="text" className="form-control" placeholder="Auto-calculated" disabled />
                     </div>
                   </div>
                   <div className="col-md-6">
@@ -627,8 +817,21 @@ const LeaveEmployee = () => {
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={""}
+                        placeholder="Enter reason for leave"
+                        value={addFormData.reason}
+                        onChange={(e) => setAddFormData({ ...addFormData, reason: e.target.value })}
                       />
+                    </div>
+                  </div>
+
+                  {/* Attachment Upload - Phase 4 */}
+                  <div className="col-md-12">
+                    <div className="mb-3">
+                      <label className="form-label">Attachments (Optional)</label>
+                      <div className="alert alert-info" role="alert">
+                        <i className="ti ti-info-circle me-2"></i>
+                        Supporting documents (medical certificates, etc.) can be uploaded after creating the leave request.
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -638,13 +841,20 @@ const LeaveEmployee = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setAddFormData({
+                    leaveType: '',
+                    startDate: null,
+                    endDate: null,
+                    session: 'Full Day',
+                    reason: '',
+                  })}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleAddLeaveSubmit}
                 >
                   Add Leave
                 </button>
@@ -665,6 +875,7 @@ const LeaveEmployee = () => {
                 className="btn-close custom-btn-close"
                 data-bs-dismiss="modal"
                 aria-label="Close"
+                onClick={() => setEditFormData(null)}
               >
                 <i className="ti ti-x" />
               </button>
@@ -678,7 +889,8 @@ const LeaveEmployee = () => {
                       <CommonSelect
                         className="select"
                         options={leavetype}
-                        defaultValue={leavetype[1]}
+                        defaultValue={editFormData ? leavetype.find(l => l.value === editFormData.leaveType) || leavetype[1] : leavetype[1]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, leaveType: option.value })}
                       />
                     </div>
                   </div>
@@ -694,6 +906,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.startDate ? editFormData.startDate : null}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, startDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -713,6 +927,8 @@ const LeaveEmployee = () => {
                           }}
                           getPopupContainer={getModalContainer}
                           placeholder="DD-MM-YYYY"
+                          value={editFormData?.endDate ? editFormData.endDate : null}
+                          onChange={(date) => editFormData && setEditFormData({ ...editFormData, endDate: date })}
                         />
                         <span className="input-icon-addon">
                           <i className="ti ti-calendar text-gray-7" />
@@ -726,7 +942,7 @@ const LeaveEmployee = () => {
                         <input
                           type="text"
                           className="form-control datetimepicker"
-                          defaultValue="15/01/24"
+                          value={editFormData?.startDate ? editFormData.startDate.format('DD/MM/YY') : ''}
                           disabled
                         />
                         <span className="input-icon-addon">
@@ -740,7 +956,8 @@ const LeaveEmployee = () => {
                       <CommonSelect
                         className="select"
                         options={selectChoose}
-                        defaultValue={selectChoose[1]}
+                        defaultValue={selectChoose[0]}
+                        onChange={(option: any) => editFormData && setEditFormData({ ...editFormData, session: option.value })}
                       />
                     </div>
                   </div>
@@ -775,6 +992,8 @@ const LeaveEmployee = () => {
                           name="leave1"
                           defaultValue="option4"
                           id="leave6"
+                          checked={editFormData?.session === 'Full Day'}
+                          onChange={() => editFormData && setEditFormData({ ...editFormData, session: 'Full Day' })}
                         />
                         <label className="form-check-label" htmlFor="leave6">
                           Full Day
@@ -787,6 +1006,8 @@ const LeaveEmployee = () => {
                           name="leave1"
                           defaultValue="option5"
                           id="leave5"
+                          checked={editFormData?.session === 'First Half'}
+                          onChange={() => editFormData && setEditFormData({ ...editFormData, session: 'First Half' })}
                         />
                         <label className="form-check-label" htmlFor="leave5">
                           First Half
@@ -799,6 +1020,8 @@ const LeaveEmployee = () => {
                           name="leave1"
                           defaultValue="option6"
                           id="leave4"
+                          checked={editFormData?.session === 'Second Half'}
+                          onChange={() => editFormData && setEditFormData({ ...editFormData, session: 'Second Half' })}
                         />
                         <label className="form-check-label" htmlFor="leave4">
                           Second Half
@@ -812,7 +1035,8 @@ const LeaveEmployee = () => {
                       <textarea
                         className="form-control"
                         rows={3}
-                        defaultValue={" Going to Hospital "}
+                        value={editFormData?.reason || ''}
+                        onChange={(e) => editFormData && setEditFormData({ ...editFormData, reason: e.target.value })}
                       />
                     </div>
                   </div>
@@ -823,13 +1047,14 @@ const LeaveEmployee = () => {
                   type="button"
                   className="btn btn-light me-2"
                   data-bs-dismiss="modal"
+                  onClick={() => setEditFormData(null)}
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  data-bs-dismiss="modal"
                   className="btn btn-primary"
+                  onClick={handleEditLeaveSubmit}
                 >
                   Save Changes
                 </button>

@@ -1,34 +1,219 @@
-import React from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { all_routes } from "../../router/all_routes";
 import PredefinedDateRanges from "../../../core/common/datePicker";
-import { attendance_employee_details } from "../../../core/data/json/attendanceemployee";
 import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import Table from "../../../core/common/dataTable/index";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../core/common/footer";
+import { useAttendanceREST, toTableFormat, formatAttendanceDate, formatAttendanceTime } from "../../../hooks/useAttendanceREST";
+import { ReloadOutlined, UserOutlined } from "@ant-design/icons";
+import { Spin, Button, message } from "antd";
+import { useSocketAttendance, AttendanceYouClockedInEvent, AttendanceYouClockedOutEvent } from "../../../hooks/useSocket";
+import { getAuthToken } from "../../../services/api";
 
 const AttendanceEmployee = () => {
-  const data = attendance_employee_details;
+  // API Hook
+  const {
+    myAttendance,
+    loading,
+    error,
+    pagination,
+    needsEmployeeSync,
+    fetchMyAttendance,
+    clockIn,
+    clockOut,
+    syncEmployeeRecord
+  } = useAttendanceREST();
+
+  // Socket.IO Hook - Real-time updates for personal attendance
+  const { isConnected: socketConnected } = useSocketAttendance(getAuthToken() || undefined, {
+    // Handle own clock in confirmation
+    onYouClockedIn: (data: AttendanceYouClockedInEvent) => {
+      console.log('[AttendanceEmployee] You clocked in event received:', data);
+      // Refresh attendance to show the new clock in
+      fetchMyAttendance(filters);
+      message.success('Successfully clocked in!');
+    },
+
+    // Handle own clock out confirmation
+    onYouClockedOut: (data: AttendanceYouClockedOutEvent) => {
+      console.log('[AttendanceEmployee] You clocked out event received:', data);
+      // Refresh attendance to show the clock out
+      fetchMyAttendance(filters);
+      message.success(`Successfully clocked out! Hours worked: ${data.hoursWorked?.toFixed(2) || '0.00'} hrs`);
+    },
+
+    // Handle attendance updates (e.g., status changes by admin)
+    onUpdated: (data) => {
+      console.log('[AttendanceEmployee] Attendance updated event received:', data);
+      fetchMyAttendance(filters);
+    },
+  });
+
+  // State
+  const [filters, setFilters] = useState({
+    page: 1,
+    limit: 31,
+    status: '',
+    startDate: '',
+    endDate: ''
+  });
+
+  const [selectedStatus, setSelectedStatus] = useState<string>('');
+  const [selectedDateRange, setSelectedDateRange] = useState<string>('');
+  const [currentTime, setCurrentTime] = useState(new Date());
+
+  // Update current time every minute
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  // Fetch my attendance on mount and when filters change
+  useEffect(() => {
+    fetchMyAttendance(filters);
+  }, [filters]);
+
+  // Transform attendance data for table display
+  const tableData = useMemo(() => {
+    return myAttendance.map(toTableFormat);
+  }, [myAttendance]);
+
+  // Get today's attendance to check if clocked in
+  const todayAttendance = myAttendance.find((att) => {
+    const today = new Date().toISOString().split('T')[0];
+    return att.date?.startsWith(today) || new Date(att.date).toISOString().split('T')[0] === today;
+  });
+
+  const isClockedIn = todayAttendance?.clockIn?.time && !todayAttendance?.clockOut?.time;
+  const canClockIn = !isClockedIn;
+  const canClockOut = isClockedIn;
+
+  // Calculate production hours for today
+  const todayHours = todayAttendance?.hoursWorked || 0;
+
+  // Get greeting based on time
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good Morning";
+    if (hour < 17) return "Good Afternoon";
+    return "Good Evening";
+  };
+
+  const greeting = getGreeting();
+
+  // Clock in handler
+  const handleClockIn = async () => {
+    const success = await clockIn({
+      time: new Date().toISOString(),
+      location: {
+        type: 'office' as const
+      },
+      notes: ''
+    });
+    if (success) {
+      message.success('Successfully clocked in!');
+    }
+  };
+
+  // Clock out handler
+  const handleClockOut = async () => {
+    if (!todayAttendance?._id) {
+      message.error('No active attendance record found. Please clock in first.');
+      return;
+    }
+    const success = await clockOut(todayAttendance._id, {
+      time: new Date().toISOString(),
+      location: {
+        type: 'office' as const
+      },
+      notes: ''
+    });
+    if (success) {
+      message.success('Successfully clocked out!');
+    }
+  };
+
+  // Format time display
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true
+    });
+  };
+
+  // Format date display
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+  };
+
+  // Filter handlers
+  const handleStatusFilter = (status: string) => {
+    setSelectedStatus(status);
+    setFilters({ ...filters, status, page: 1 });
+  };
+
+  const handleDateRangeChange = (dateRange: any) => {
+    setSelectedDateRange(dateRange);
+    if (dateRange && dateRange.startDate && dateRange.endDate) {
+      setFilters({
+        ...filters,
+        startDate: dateRange.startDate.format('YYYY-MM-DD'),
+        endDate: dateRange.endDate.format('YYYY-MM-DD'),
+        page: 1
+      });
+    } else {
+      // Clear date filters
+      setFilters({
+        ...filters,
+        startDate: '',
+        endDate: '',
+        page: 1
+      });
+    }
+  };
+
+  const handleRefresh = () => {
+    fetchMyAttendance(filters);
+  };
+
+  // Table columns
   const columns = [
     {
       title: "Date",
       dataIndex: "Date",
-      sorter: (a: any, b: any) => a.Date.length - b.Date.length,
+      render: (text: string, record: any) => (
+        <span>{formatAttendanceDate(record._original?.date)}</span>
+      ),
+      sorter: true,
     },
     {
       title: "Check In",
       dataIndex: "CheckIn",
-      sorter: (a: any, b: any) => a.CheckIn.length - b.CheckIn.length,
+      render: (text: string, record: any) => (
+        <span>{record.CheckIn}</span>
+      ),
+      sorter: true,
     },
     {
       title: "Status",
       dataIndex: "Status",
-      render: (text: String, record: any) => (
+      render: (text: string, record: any) => (
         <span
           className={`badge ${
-            text === "Present"
+            record.Status === "Present"
               ? "badge-success-transparent"
+              : record.Status === "Late"
+              ? "badge-warning-transparent"
+              : record.Status === "Half Day"
+              ? "badge-info-transparent"
               : "badge-danger-transparent"
           } d-inline-flex align-items-center`}
         >
@@ -36,38 +221,52 @@ const AttendanceEmployee = () => {
           {record.Status}
         </span>
       ),
-      sorter: (a: any, b: any) => a.Status.length - b.Status.length,
+      sorter: true,
     },
     {
       title: "Check Out",
       dataIndex: "CheckOut",
-      sorter: (a: any, b: any) => a.CheckOut.length - b.CheckOut.length,
+      render: (text: string, record: any) => (
+        <span>{record.CheckOut}</span>
+      ),
+      sorter: true,
     },
     {
       title: "Break",
       dataIndex: "Break",
-      sorter: (a: any, b: any) => a.Break.length - b.Break.length,
+      render: (text: string, record: any) => (
+        <span>{record.Break}</span>
+      ),
+      sorter: true,
     },
     {
       title: "Late",
       dataIndex: "Late",
-      sorter: (a: any, b: any) => a.Late.length - b.Late.length,
+      render: (text: string, record: any) => (
+        <span>{record.Late}</span>
+      ),
+      sorter: true,
     },
     {
       title: "Overtime",
       dataIndex: "Overtime",
-      sorter: (a: any, b: any) => a.Overtime.length - b.Overtime.length,
+      render: (text: string, record: any) => {
+        const original = record._original;
+        const overtime = original?.overtimeHours || 0;
+        return <span>{overtime > 0 ? `${overtime.toFixed(2)} Hrs` : '-'}</span>;
+      },
+      sorter: true,
     },
     {
       title: "Production Hours",
       dataIndex: "ProductionHours",
-      render: (text: String, record: any) => (
+      render: (text: string, record: any) => (
         <span
           className={`badge d-inline-flex align-items-center badge-sm ${
-            record.ProductionHours < "8.00"
+            parseFloat(record.ProductionHours) < 8
               ? "badge-danger"
-              : record.ProductionHours >= "8.00" &&
-                record.ProductionHours <= "9.00"
+              : parseFloat(record.ProductionHours) >= 8 &&
+                parseFloat(record.ProductionHours) <= 9
               ? "badge-success"
               : "badge-info"
           }`}
@@ -76,8 +275,7 @@ const AttendanceEmployee = () => {
           {record.ProductionHours}
         </span>
       ),
-      sorter: (a: any, b: any) =>
-        a.ProductionHours.length - b.ProductionHours.length,
+      sorter: true,
     },
   ];
 
@@ -171,13 +369,13 @@ const AttendanceEmployee = () => {
                 <div className="card-body">
                   <div className="mb-3 text-center">
                     <h6 className="fw-medium text-gray-5 mb-2">
-                      Good Morning, Adrian
+                      {greeting}, Employee
                     </h6>
-                    <h4>08:35 AM, 11 Mar 2025</h4>
+                    <h4>{formatTime(currentTime)}, {formatDate(currentTime)}</h4>
                   </div>
                   <div
                     className="attendance-circle-progress mx-auto mb-3"
-                    data-value={65}
+                    data-value={Math.min((todayHours / 8) * 100, 100)}
                   >
                     <span className="progress-left">
                       <span className="progress-bar border-success" />
@@ -194,15 +392,50 @@ const AttendanceEmployee = () => {
                   </div>
                   <div className="text-center">
                     <div className="badge badge-md badge-primary mb-3">
-                      Production : 3.45 hrs
+                      Production : {todayHours.toFixed(2)} hrs
                     </div>
                     <h6 className="fw-medium d-flex align-items-center justify-content-center mb-3">
                       <i className="ti ti-fingerprint text-primary me-1" />
-                      Punch In at 10.00 AM
+                      {todayAttendance?.clockIn?.time
+                        ? `Punch In at ${formatAttendanceTime(todayAttendance.clockIn.time)}`
+                        : 'Not punched in yet'}
                     </h6>
-                    <Link to="#" className="btn btn-dark w-100">
-                      Punch Out
-                    </Link>
+                    {canClockIn ? (
+                      <button
+                        className="btn btn-primary w-100"
+                        onClick={handleClockIn}
+                        disabled={loading}
+                      >
+                        {loading ? <Spin size="small" /> : 'Punch In'}
+                      </button>
+                    ) : (
+                      <button
+                        className="btn btn-dark w-100"
+                        onClick={handleClockOut}
+                        disabled={loading}
+                      >
+                        {loading ? <Spin size="small" /> : 'Punch Out'}
+                      </button>
+                    )}
+                    {needsEmployeeSync && (
+                      <div className="alert alert-warning mt-2 mb-0" role="alert">
+                        <i className="ti ti-alert-triangle me-2" />
+                        <strong>Profile Setup Required</strong>
+                        <p className="mb-2 mt-1">Please sync your employee profile to use attendance features.</p>
+                        <button
+                          className="btn btn-warning btn-sm w-100"
+                          onClick={async () => {
+                            const success = await syncEmployeeRecord();
+                            if (success) {
+                              await fetchMyAttendance(filters);
+                            }
+                          }}
+                        >
+                          <i className="ti ti-refresh me-1" />
+                          Sync Profile
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -217,7 +450,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-clock-stop" />
                         </span>
                         <h2 className="mb-2">
-                          8.36 / <span className="fs-20 text-gray-5"> 9</span>
+                          {todayHours.toFixed(2)} / <span className="fs-20 text-gray-5"> 9</span>
                         </h2>
                         <p className="fw-medium text-truncate">
                           Total Hours Today
@@ -226,9 +459,9 @@ const AttendanceEmployee = () => {
                       <div>
                         <p className="d-flex align-items-center fs-13">
                           <span className="avatar avatar-xs rounded-circle bg-success flex-shrink-0 me-2">
-                            <i className="ti ti-arrow-up fs-12" />
+                            <i className="ti ti-clock fs-12" />
                           </span>
-                          <span>5% This Week</span>
+                          <span>{todayHours >= 8 ? 'Full day achieved' : 'In progress'}</span>
                         </p>
                       </div>
                     </div>
@@ -242,7 +475,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-clock-up" />
                         </span>
                         <h2 className="mb-2">
-                          10 / <span className="fs-20 text-gray-5"> 40</span>
+                          {myAttendance.reduce((sum, att) => sum + (att.hoursWorked || 0), 0).toFixed(2)} / <span className="fs-20 text-gray-5"> 40</span>
                         </h2>
                         <p className="fw-medium text-truncate">
                           Total Hours Week
@@ -251,9 +484,9 @@ const AttendanceEmployee = () => {
                       <div>
                         <p className="d-flex align-items-center fs-13">
                           <span className="avatar avatar-xs rounded-circle bg-success flex-shrink-0 me-2">
-                            <i className="ti ti-arrow-up fs-12" />
+                            <i className="ti ti-calendar fs-12" />
                           </span>
-                          <span>7% Last Week</span>
+                          <span>Current week</span>
                         </p>
                       </div>
                     </div>
@@ -267,7 +500,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-calendar-up" />
                         </span>
                         <h2 className="mb-2">
-                          75 / <span className="fs-20 text-gray-5"> 98</span>
+                          {myAttendance.reduce((sum, att) => sum + (att.hoursWorked || 0), 0).toFixed(2)} / <span className="fs-20 text-gray-5"> 160</span>
                         </h2>
                         <p className="fw-medium text-truncate">
                           Total Hours Month
@@ -275,10 +508,10 @@ const AttendanceEmployee = () => {
                       </div>
                       <div>
                         <p className="d-flex align-items-center fs-13 text-truncate">
-                          <span className="avatar avatar-xs rounded-circle bg-danger flex-shrink-0 me-2">
-                            <i className="ti ti-arrow-down fs-12" />
+                          <span className="avatar avatar-xs rounded-circle bg-info flex-shrink-0 me-2">
+                            <i className="ti ti-calendar fs-12" />
                           </span>
-                          <span>8% Last Month</span>
+                          <span>Current month</span>
                         </p>
                       </div>
                     </div>
@@ -292,18 +525,18 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-calendar-star" />
                         </span>
                         <h2 className="mb-2">
-                          16 / <span className="fs-20 text-gray-5"> 28</span>
+                          {myAttendance.reduce((sum, att) => sum + (att.overtimeHours || 0), 0).toFixed(2)} hrs
                         </h2>
                         <p className="fw-medium text-truncate">
-                          Overtime this Month
+                          Overtime this Period
                         </p>
                       </div>
                       <div>
                         <p className="d-flex align-items-center fs-13 text-truncate">
-                          <span className="avatar avatar-xs rounded-circle bg-danger flex-shrink-0 me-2">
-                            <i className="ti ti-arrow-down fs-12" />
+                          <span className="avatar avatar-xs rounded-circle bg-warning flex-shrink-0 me-2">
+                            <i className="ti ti-time-duration fs-12" />
                           </span>
-                          <span>6% Last Month</span>
+                          <span>{myAttendance.filter(att => att.overtimeHours && att.overtimeHours > 0).length} days with overtime</span>
                         </p>
                       </div>
                     </div>
@@ -319,7 +552,7 @@ const AttendanceEmployee = () => {
                               <i className="ti ti-point-filled text-dark-transparent me-1" />
                               Total Working hours
                             </p>
-                            <h3>12h 36m</h3>
+                            <h3>{todayAttendance?.hoursWorked ? `${Math.floor(todayAttendance.hoursWorked)}h ${Math.round((todayAttendance.hoursWorked % 1) * 60)}m` : '0h 0m'}</h3>
                           </div>
                         </div>
                         <div className="col-xl-3">
@@ -328,7 +561,7 @@ const AttendanceEmployee = () => {
                               <i className="ti ti-point-filled text-success me-1" />
                               Productive Hours
                             </p>
-                            <h3>08h 36m</h3>
+                            <h3>{todayAttendance?.regularHours ? `${Math.floor(todayAttendance.regularHours)}h ${Math.round((todayAttendance.regularHours % 1) * 60)}m` : (todayAttendance?.hoursWorked ? `${Math.floor(todayAttendance.hoursWorked)}h ${Math.round((todayAttendance.hoursWorked % 1) * 60)}m` : '0h 0m')}</h3>
                           </div>
                         </div>
                         <div className="col-xl-3">
@@ -337,7 +570,7 @@ const AttendanceEmployee = () => {
                               <i className="ti ti-point-filled text-warning me-1" />
                               Break hours
                             </p>
-                            <h3>22m 15s</h3>
+                            <h3>{todayAttendance?.breakDuration ? `${Math.floor(todayAttendance.breakDuration / 60)}h ${todayAttendance.breakDuration % 60}m` : '0h 0m'}</h3>
                           </div>
                         </div>
                         <div className="col-xl-3">
@@ -346,7 +579,7 @@ const AttendanceEmployee = () => {
                               <i className="ti ti-point-filled text-info me-1" />
                               Overtime
                             </p>
-                            <h3>02h 15m</h3>
+                            <h3>{todayAttendance?.overtimeHours ? `${Math.floor(todayAttendance.overtimeHours)}h ${Math.round((todayAttendance.overtimeHours % 1) * 60)}m` : '0h 0m'}</h3>
                           </div>
                         </div>
                       </div>
@@ -442,8 +675,18 @@ const AttendanceEmployee = () => {
               <h5>Employee Attendance</h5>
               <div className="d-flex my-xl-auto right-content align-items-center flex-wrap row-gap-3">
                 <div className="me-3">
+                  <button
+                    className="btn btn-white d-inline-flex align-items-center"
+                    onClick={handleRefresh}
+                    disabled={loading}
+                  >
+                    <ReloadOutlined spin={loading} className="me-1" />
+                    Refresh
+                  </button>
+                </div>
+                <div className="me-3">
                   <div className="input-icon-end position-relative">
-                    <PredefinedDateRanges />
+                    <PredefinedDateRanges onChange={handleDateRangeChange} />
                     <span className="input-icon-addon">
                       <i className="ti ti-chevron-down" />
                     </span>
@@ -455,17 +698,52 @@ const AttendanceEmployee = () => {
                     className="dropdown-toggle btn btn-white d-inline-flex align-items-center"
                     data-bs-toggle="dropdown"
                   >
-                    Select Status
+                    {selectedStatus || 'Select Status'}
                   </Link>
-                  <ul className="dropdown-menu  dropdown-menu-end p-3">
+                  <ul className="dropdown-menu dropdown-menu-end p-3">
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
+                      <Link
+                        to="#"
+                        className={`dropdown-item rounded-1 ${selectedStatus === '' ? 'active' : ''}`}
+                        onClick={() => handleStatusFilter('')}
+                      >
+                        All Status
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="#"
+                        className={`dropdown-item rounded-1 ${selectedStatus === 'present' ? 'active' : ''}`}
+                        onClick={() => handleStatusFilter('present')}
+                      >
                         Present
                       </Link>
                     </li>
                     <li>
-                      <Link to="#" className="dropdown-item rounded-1">
+                      <Link
+                        to="#"
+                        className={`dropdown-item rounded-1 ${selectedStatus === 'absent' ? 'active' : ''}`}
+                        onClick={() => handleStatusFilter('absent')}
+                      >
                         Absent
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="#"
+                        className={`dropdown-item rounded-1 ${selectedStatus === 'late' ? 'active' : ''}`}
+                        onClick={() => handleStatusFilter('late')}
+                      >
+                        Late
+                      </Link>
+                    </li>
+                    <li>
+                      <Link
+                        to="#"
+                        className={`dropdown-item rounded-1 ${selectedStatus === 'half-day' ? 'active' : ''}`}
+                        onClick={() => handleStatusFilter('half-day')}
+                      >
+                        Half Day
                       </Link>
                     </li>
                   </ul>
@@ -509,7 +787,17 @@ const AttendanceEmployee = () => {
               </div>
             </div>
             <div className="card-body p-0">
-              <Table dataSource={data} columns={columns} Selection={false} />
+              {loading ? (
+                <div className="text-center p-5">
+                  <Spin size="large" tip="Loading attendance data..." />
+                </div>
+              ) : error ? (
+                <div className="text-center p-5">
+                  <p className="text-danger">{error}</p>
+                </div>
+              ) : (
+                <Table dataSource={tableData} columns={columns} Selection={false} />
+              )}
             </div>
           </div>
         </div>
@@ -538,25 +826,39 @@ const AttendanceEmployee = () => {
                     <div className="col-sm-3">
                       <div className="mb-3">
                         <span>Date</span>
-                        <p className="text-gray-9 fw-medium">15 Apr 2025</p>
+                        <p className="text-gray-9 fw-medium">
+                          {todayAttendance ? formatAttendanceDate(todayAttendance.date) : formatDate(currentTime)}
+                        </p>
                       </div>
                     </div>
                     <div className="col-sm-3">
                       <div className="mb-3">
                         <span>Punch in at</span>
-                        <p className="text-gray-9 fw-medium">09:00 AM</p>
+                        <p className="text-gray-9 fw-medium">
+                          {todayAttendance?.clockIn?.time
+                            ? formatAttendanceTime(todayAttendance.clockIn.time)
+                            : '-'}
+                        </p>
                       </div>
                     </div>
                     <div className="col-sm-3">
                       <div className="mb-3">
                         <span>Punch out at</span>
-                        <p className="text-gray-9 fw-medium">06:45 PM</p>
+                        <p className="text-gray-9 fw-medium">
+                          {todayAttendance?.clockOut?.time
+                            ? formatAttendanceTime(todayAttendance.clockOut.time)
+                            : '-'}
+                        </p>
                       </div>
                     </div>
                     <div className="col-sm-3">
                       <div className="mb-3">
                         <span>Status</span>
-                        <p className="text-gray-9 fw-medium">Present</p>
+                        <p className="text-gray-9 fw-medium">
+                          {todayAttendance?.status
+                            ? todayAttendance.status.charAt(0).toUpperCase() + todayAttendance.status.slice(1).replace('-', ' ')
+                            : 'Not Available'}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -571,7 +873,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-point-filled text-dark-transparent me-1" />
                           Total Working hours
                         </p>
-                        <h3>12h 36m</h3>
+                        <h3>{todayAttendance?.hoursWorked ? `${todayAttendance.hoursWorked.toFixed(2)} hrs` : '0.00 hrs'}</h3>
                       </div>
                     </div>
                     <div className="col-xl-3">
@@ -580,7 +882,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-point-filled text-success me-1" />
                           Productive Hours
                         </p>
-                        <h3>08h 36m</h3>
+                        <h3>{todayAttendance?.regularHours ? `${todayAttendance.regularHours.toFixed(2)} hrs` : (todayAttendance?.hoursWorked ? `${todayAttendance.hoursWorked.toFixed(2)} hrs` : '0.00 hrs')}</h3>
                       </div>
                     </div>
                     <div className="col-xl-3">
@@ -589,7 +891,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-point-filled text-warning me-1" />
                           Break hours
                         </p>
-                        <h3>22m 15s</h3>
+                        <h3>{todayAttendance?.breakDuration ? `${todayAttendance.breakDuration} min` : '0 min'}</h3>
                       </div>
                     </div>
                     <div className="col-xl-3">
@@ -598,7 +900,7 @@ const AttendanceEmployee = () => {
                           <i className="ti ti-point-filled text-info me-1" />
                           Overtime
                         </p>
-                        <h3>02h 15m</h3>
+                        <h3>{todayAttendance?.overtimeHours ? `${todayAttendance.overtimeHours.toFixed(2)} hrs` : '0.00 hrs'}</h3>
                       </div>
                     </div>
                   </div>

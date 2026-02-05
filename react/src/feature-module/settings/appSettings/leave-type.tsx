@@ -1,11 +1,117 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { all_routes } from "../../router/all_routes";
 import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../core/common/footer";
+import { useLeaveTypesREST, type LeaveType } from "../../../hooks/useLeaveTypesREST";
+import { Spin } from "antd";
 
-const LeaveType = () => {
+// Loading spinner component
+const LoadingSpinner = () => (
+  <div style={{ textAlign: 'center', padding: '50px' }}>
+    <Spin size="large" />
+  </div>
+);
+
+const LeaveTypeSettings = () => {
   const routes = all_routes;
+
+  // API hook for leave types
+  const {
+    leaveTypes,
+    loading,
+    fetchLeaveTypes,
+    createLeaveType,
+    updateLeaveType,
+    deleteLeaveType,
+    toggleLeaveTypeStatus,
+  } = useLeaveTypesREST();
+
+  // Local state for form handling
+  const [editingLeaveType, setEditingLeaveType] = useState<LeaveType | null>(null);
+  const [deletingLeaveTypeId, setDeletingLeaveTypeId] = useState<string | null>(null);
+  const [newLeaveType, setNewLeaveType] = useState({ name: '', annualQuota: 12 });
+
+  // Fetch leave types on mount
+  useEffect(() => {
+    fetchLeaveTypes();
+  }, []);
+
+  // Handle add leave type
+  const handleAddLeaveType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLeaveType.name.trim()) {
+      alert('Please enter a leave type name');
+      return;
+    }
+
+    const code = newLeaveType.name.toUpperCase().replace(/\s+/g, '_').substring(0, 20);
+    const success = await createLeaveType({
+      name: newLeaveType.name.trim(),
+      code,
+      annualQuota: newLeaveType.annualQuota,
+      isPaid: true,
+      requiresApproval: true,
+    });
+
+    if (success) {
+      setNewLeaveType({ name: '', annualQuota: 12 });
+      // Close modal manually (bootstrap modal)
+      const modal = document.querySelector('#add_leaves');
+      if (modal instanceof HTMLElement) {
+        const bootstrapModal = (window as any).bootstrap?.Modal?.getInstance(modal);
+        bootstrapModal?.hide();
+      }
+    }
+  };
+
+  // Handle update leave type
+  const handleUpdateLeaveType = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLeaveType) return;
+
+    const success = await updateLeaveType(editingLeaveType.leaveTypeId, {
+      name: editingLeaveType.name,
+      annualQuota: editingLeaveType.annualQuota,
+    });
+
+    if (success) {
+      setEditingLeaveType(null);
+      // Close modal manually
+      const modal = document.querySelector('#edit_leaves');
+      if (modal instanceof HTMLElement) {
+        const bootstrapModal = (window as any).bootstrap?.Modal?.getInstance(modal);
+        bootstrapModal?.hide();
+      }
+    }
+  };
+
+  // Handle delete leave type
+  const handleDeleteLeaveType = async () => {
+    if (!deletingLeaveTypeId) return;
+
+    const success = await deleteLeaveType(deletingLeaveTypeId);
+    if (success) {
+      setDeletingLeaveTypeId(null);
+      // Close modal manually
+      const modal = document.querySelector('#delete_modal');
+      if (modal instanceof HTMLElement) {
+        const bootstrapModal = (window as any).bootstrap?.Modal?.getInstance(modal);
+        bootstrapModal?.hide();
+      }
+    }
+  };
+
+  // Open edit modal with leave type data
+  const openEditModal = (leaveType: LeaveType) => {
+    setEditingLeaveType(leaveType);
+  };
+
+  // Open delete modal
+  const openDeleteModal = (leaveTypeId: string) => {
+    setDeletingLeaveTypeId(leaveTypeId);
+  };
+
   return (
     <div>
       <>
@@ -136,175 +242,82 @@ const LeaveType = () => {
                           <h6>Leave Type List</h6>
                         </div>
                         <div className="table-responsive">
-                          <table className="table">
-                            <thead className="thead-light">
-                              <tr>
-                                <th className="no-sort">
-                                  <div className="form-check form-check-md">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                      id="select-all"
-                                    />
-                                  </div>
-                                </th>
-                                <th>Leave Type</th>
-                                <th>Leave Days</th>
-                                <th>Status</th>
-                                <th />
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr>
-                                <td>
-                                  <div className="form-check form-check-md">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                    />
-                                  </div>
-                                </td>
-                                <td className="text-dark">Annual Leave</td>
-                                <td>12</td>
-                                <td>
-                                  <span className="badge badge-success">
-                                    <i className="ti ti-point-filled" />
-                                    Active
-                                  </span>
-                                </td>
-                                <td>
-                                  <div className="action-icon d-inline-flex">
-                                    <Link
-                                      to="#"
-                                      className="me-2"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#edit_leaves"
-                                    >
-                                      <i className="ti ti-edit" />
-                                    </Link>
-                                    <Link
-                                      to="#"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#delete_modal"
-                                    >
-                                      <i className="ti ti-trash" />
-                                    </Link>
-                                  </div>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td>
-                                  <div className="form-check form-check-md">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                    />
-                                  </div>
-                                </td>
-                                <td className="text-dark">Medical Leave</td>
-                                <td>12</td>
-                                <td>
-                                  <span className="badge badge-success">
-                                    <i className="ti ti-point-filled" />
-                                    Active
-                                  </span>
-                                </td>
-                                <td>
-                                  <div className="action-icon d-inline-flex">
-                                    <Link
-                                      to="#"
-                                      className="me-2"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#edit_leaves"
-                                    >
-                                      <i className="ti ti-edit" />
-                                    </Link>
-                                    <Link
-                                      to="#"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#delete_modal"
-                                    >
-                                      <i className="ti ti-trash" />
-                                    </Link>
-                                  </div>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td>
-                                  <div className="form-check form-check-md">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                    />
-                                  </div>
-                                </td>
-                                <td className="text-dark">Casual Leave</td>
-                                <td>12</td>
-                                <td>
-                                  <span className="badge badge-success">
-                                    <i className="ti ti-point-filled" />
-                                    Active
-                                  </span>
-                                </td>
-                                <td>
-                                  <div className="action-icon d-inline-flex">
-                                    <Link
-                                      to="#"
-                                      className="me-2"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#edit_leaves"
-                                    >
-                                      <i className="ti ti-edit" />
-                                    </Link>
-                                    <Link
-                                      to="#"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#delete_modal"
-                                    >
-                                      <i className="ti ti-trash" />
-                                    </Link>
-                                  </div>
-                                </td>
-                              </tr>
-                              <tr>
-                                <td>
-                                  <div className="form-check form-check-md">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                    />
-                                  </div>
-                                </td>
-                                <td className="text-dark">Other Leave</td>
-                                <td>12</td>
-                                <td>
-                                  <span className="badge badge-success">
-                                    <i className="ti ti-point-filled" />
-                                    Active
-                                  </span>
-                                </td>
-                                <td>
-                                  <div className="action-icon d-inline-flex">
-                                    <Link
-                                      to="#"
-                                      className="me-2"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#edit_leaves"
-                                    >
-                                      <i className="ti ti-edit" />
-                                    </Link>
-                                    <Link
-                                      to="#"
-                                      data-bs-toggle="modal"
-                                      data-bs-target="#delete_modal"
-                                    >
-                                      <i className="ti ti-trash" />
-                                    </Link>
-                                  </div>
-                                </td>
-                              </tr>
-                            </tbody>
-                          </table>
+                          {loading ? (
+                            <LoadingSpinner />
+                          ) : (
+                            <table className="table">
+                              <thead className="thead-light">
+                                <tr>
+                                  <th className="no-sort">
+                                    <div className="form-check form-check-md">
+                                      <input
+                                        className="form-check-input"
+                                        type="checkbox"
+                                        id="select-all"
+                                      />
+                                    </div>
+                                  </th>
+                                  <th>Leave Type</th>
+                                  <th>Code</th>
+                                  <th>Leave Days</th>
+                                  <th>Status</th>
+                                  <th />
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {leaveTypes.length === 0 ? (
+                                  <tr>
+                                    <td colSpan={6} className="text-center py-4">
+                                      No leave types found. Click "Add Leave Type" to create one.
+                                    </td>
+                                  </tr>
+                                ) : (
+                                  leaveTypes.map((leaveType) => (
+                                    <tr key={leaveType.leaveTypeId}>
+                                      <td>
+                                        <div className="form-check form-check-md">
+                                          <input
+                                            className="form-check-input"
+                                            type="checkbox"
+                                          />
+                                        </div>
+                                      </td>
+                                      <td className="text-dark">{leaveType.name}</td>
+                                      <td><span className="badge bg-light text-dark">{leaveType.code}</span></td>
+                                      <td>{leaveType.annualQuota}</td>
+                                      <td>
+                                        <span className={`badge ${leaveType.isActive ? 'badge-success' : 'badge-secondary'}`}>
+                                          <i className="ti ti-point-filled" />
+                                          {leaveType.isActive ? 'Active' : 'Inactive'}
+                                        </span>
+                                      </td>
+                                      <td>
+                                        <div className="action-icon d-inline-flex">
+                                          <Link
+                                            to="#"
+                                            className="me-2"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#edit_leaves"
+                                            onClick={() => openEditModal(leaveType)}
+                                          >
+                                            <i className="ti ti-edit" />
+                                          </Link>
+                                          <Link
+                                            to="#"
+                                            data-bs-toggle="modal"
+                                            data-bs-target="#delete_modal"
+                                            onClick={() => openDeleteModal(leaveType.leaveTypeId)}
+                                          >
+                                            <i className="ti ti-trash" />
+                                          </Link>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -313,7 +326,7 @@ const LeaveType = () => {
               </div>
             </div>
           </div>
-          
+
           <Footer />
         </div>
         {/* /Page Wrapper */}
@@ -335,7 +348,7 @@ const LeaveType = () => {
                   <i className="ti ti-x" />
                 </button>
               </div>
-              <form>
+              <form onSubmit={handleAddLeaveType}>
                 <div className="modal-body pb-0">
                   <div className="row">
                     <div className="col-md-12">
@@ -343,15 +356,28 @@ const LeaveType = () => {
                         <label className="form-label">
                           Leave Type <span className="text-danger">*</span>
                         </label>
-                        <input type="text" className="form-control" />
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={newLeaveType.name}
+                          onChange={(e) => setNewLeaveType({ ...newLeaveType, name: e.target.value })}
+                          placeholder="e.g., Annual Leave"
+                        />
                       </div>
                     </div>
                     <div className="col-md-12">
                       <div className="mb-3">
                         <label className="form-label">
-                          Number of days <span className="text-danger">*</span>
+                          Number of days per year <span className="text-danger">*</span>
                         </label>
-                        <input type="text" className="form-control" />
+                        <input
+                          type="number"
+                          className="form-control"
+                          value={newLeaveType.annualQuota}
+                          onChange={(e) => setNewLeaveType({ ...newLeaveType, annualQuota: parseInt(e.target.value) || 0 })}
+                          min="0"
+                          max="365"
+                        />
                       </div>
                     </div>
                   </div>
@@ -365,11 +391,10 @@ const LeaveType = () => {
                     Cancel
                   </button>
                   <button
-                    type="button"
-                    data-bs-dismiss="modal"
+                    type="submit"
                     className="btn btn-primary"
                   >
-                    Add Leave
+                    Add Leave Type
                   </button>
                 </div>
               </form>
@@ -392,7 +417,7 @@ const LeaveType = () => {
                   <i className="ti ti-x" />
                 </button>
               </div>
-              <form>
+              <form onSubmit={handleUpdateLeaveType}>
                 <div className="modal-body pb-0">
                   <div className="row">
                     <div className="col-md-12">
@@ -403,19 +428,23 @@ const LeaveType = () => {
                         <input
                           type="text"
                           className="form-control"
-                          defaultValue="Casual Leave"
+                          value={editingLeaveType?.name || ''}
+                          onChange={(e) => setEditingLeaveType(prev => prev ? { ...prev, name: e.target.value } : null)}
                         />
                       </div>
                     </div>
                     <div className="col-md-12">
                       <div className="mb-3">
                         <label className="form-label">
-                          Number of days <span className="text-danger">*</span>
+                          Number of days per year <span className="text-danger">*</span>
                         </label>
                         <input
-                          type="text"
+                          type="number"
                           className="form-control"
-                          defaultValue={12}
+                          value={editingLeaveType?.annualQuota || 0}
+                          onChange={(e) => setEditingLeaveType(prev => prev ? { ...prev, annualQuota: parseInt(e.target.value) || 0 } : null)}
+                          min="0"
+                          max="365"
                         />
                       </div>
                     </div>
@@ -430,8 +459,7 @@ const LeaveType = () => {
                     Cancel
                   </button>
                   <button
-                    type="button"
-                    data-bs-dismiss="modal"
+                    type="submit"
                     className="btn btn-primary"
                   >
                     Save Changes
@@ -452,8 +480,7 @@ const LeaveType = () => {
                 </span>
                 <h4 className="mb-1">Confirm Delete</h4>
                 <p className="mb-3">
-                  You want to delete all the marked items, this cant be undone
-                  once you delete.
+                  Are you sure you want to delete this leave type? This action cannot be undone.
                 </p>
                 <div className="d-flex justify-content-center">
                   <Link
@@ -464,9 +491,10 @@ const LeaveType = () => {
                     Cancel
                   </Link>
                   <Link
-                    to={routes.leaveType}
+                    to="#"
                     className="btn btn-danger"
                     data-bs-dismiss="modal"
+                    onClick={handleDeleteLeaveType}
                   >
                     Yes, Delete
                   </Link>
@@ -481,4 +509,4 @@ const LeaveType = () => {
   );
 };
 
-export default LeaveType;
+export default LeaveTypeSettings;

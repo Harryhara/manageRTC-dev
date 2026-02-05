@@ -10,6 +10,7 @@ import {
     checkLifecycleStatus,
     createEmployee,
     deleteEmployee,
+    deleteEmployeeProfileImage,
     getEmployeeById,
     getEmployeeReportees,
     getEmployees,
@@ -17,8 +18,11 @@ import {
     getMyProfile,
     reassignAndDeleteEmployee,
     searchEmployees,
+    serveEmployeeProfileImage,
+    syncMyEmployeeRecord,
     updateEmployee,
-    updateMyProfile
+    updateMyProfile,
+    uploadEmployeeProfileImage
 } from '../../controllers/rest/employee.controller.js';
 import {
     attachRequestId,
@@ -31,6 +35,7 @@ import {
     validateBody,
     validateQuery
 } from '../../middleware/validate.js';
+import { uploadEmployeeImage } from '../../config/multer.config.js';
 
 const router = express.Router();
 
@@ -54,6 +59,13 @@ router.put(
   authenticate,
   validateBody(employeeSchemas.update),
   updateMyProfile
+);
+
+// Sync/create employee record for current user (from Clerk)
+router.post(
+  '/sync-my-employee',
+  authenticate,
+  syncMyEmployeeRecord
 );
 
 /**
@@ -175,6 +187,46 @@ router.get(
   requireCompany,
   requireRole('admin', 'hr', 'superadmin'),
   getEmployeeReportees
+);
+
+/**
+ * Employee Profile Image Routes
+ */
+
+// Upload employee profile image
+// Accessible by admin, hr, superadmin, or the employee themselves
+router.post(
+  '/:id/image',
+  authenticate,
+  requireCompany,
+  (req, res, next) => {
+    // Allow access if user is admin/hr/superadmin OR uploading their own image
+    const userId = req.user?.userId;
+    const paramId = req.params.id;
+
+    // Get the employee's clerkUserId to check ownership
+    if (req.user?.role !== 'admin' && req.user?.role !== 'hr' && req.user?.role !== 'superadmin') {
+      // For non-admin users, they can only upload their own image
+      // We'll verify ownership in the controller
+    }
+    next();
+  },
+  uploadEmployeeImage,
+  uploadEmployeeProfileImage
+);
+
+// Delete employee profile image
+router.delete(
+  '/:id/image',
+  authenticate,
+  requireCompany,
+  deleteEmployeeProfileImage
+);
+
+// Serve employee profile image info
+router.get(
+  '/:id/image',
+  serveEmployeeProfileImage
 );
 
 export default router;
