@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { useUser } from "@clerk/clerk-react";
 import Scrollbars from "react-custom-scrollbars-2";
 import ImageWithBasePath from "../imageWithBasePath";
 import "../../../style/icon/tabler-icons/webfont/tabler-icons.css";
@@ -14,8 +15,23 @@ import useSidebarData from "../../data/json/sidebarMenu";
 
 const Sidebar = () => {
   const Location = useLocation();
+  const { user } = useUser();
 
   const SidebarDataTest = useSidebarData();
+
+  // Get current user role
+  const getUserRole = (): string => {
+    if (!user) return "guest";
+    return (user.publicMetadata?.role as string)?.toLowerCase() || "employee";
+  };
+
+  // Check if user has access to menu item
+  const hasAccess = (roles?: string[]): boolean => {
+    if (!roles || roles.length === 0) return true;
+    if (roles.includes("public")) return true;
+    const userRole = getUserRole();
+    return roles.includes(userRole);
+  };
 
   const [subOpen, setSubopen] = useState<any>("Dashboard");
   const [subsidebar, setSubsidebar] = useState("");
@@ -141,13 +157,22 @@ const Sidebar = () => {
           <div className="text-center rounded bg-light p-3 mb-4 user-profile">
             <div className="avatar avatar-lg online mb-3">
               <ImageWithBasePath
-                src="assets/img/profiles/avatar-02.jpg"
-                alt="Img"
+                src={user?.imageUrl || "assets/img/profiles/avatar-02.jpg"}
+                alt="Profile"
                 className="img-fluid rounded-circle"
               />
             </div>
-            <h6 className="fs-12 fw-normal mb-1">Adrian Herman</h6>
-            <p className="fs-10">System Admin</p>
+            <h6 className="fs-12 fw-normal mb-1">
+              {user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || "User"}
+            </h6>
+            <p className="fs-10">
+              {user?.publicMetadata?.role === "admin" ? "Admin" :
+               user?.publicMetadata?.role === "hr" ? "HR" :
+               user?.publicMetadata?.role === "superadmin" ? "Super Admin" :
+               user?.publicMetadata?.role === "manager" ? "Manager" :
+               user?.publicMetadata?.role === "leads" ? "Leads" :
+               "Employee"}
+            </p>
           </div>
           <div className="sidebar-nav mb-3">
             <ul
@@ -176,14 +201,23 @@ const Sidebar = () => {
           <div className="text-center rounded bg-light p-2 mb-4 sidebar-profile d-flex align-items-center">
             <div className="avatar avatar-md onlin">
               <ImageWithBasePath
-                src="assets/img/profiles/avatar-02.jpg"
-                alt="Img"
+                src={user?.imageUrl || "assets/img/profiles/avatar-02.jpg"}
+                alt="Profile"
                 className="img-fluid rounded-circle"
               />
             </div>
             <div className="text-start sidebar-profile-info ms-2">
-              <h6 className="fs-12 fw-normal mb-1">Adrian Herman</h6>
-              <p className="fs-10">System Admin</p>
+              <h6 className="fs-12 fw-normal mb-1">
+                {user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || "User"}
+              </h6>
+              <p className="fs-10">
+                {user?.publicMetadata?.role === "admin" ? "Admin" :
+                 user?.publicMetadata?.role === "hr" ? "HR" :
+                 user?.publicMetadata?.role === "superadmin" ? "Super Admin" :
+                 user?.publicMetadata?.role === "manager" ? "Manager" :
+                 user?.publicMetadata?.role === "leads" ? "Leads" :
+                 "Employee"}
+              </p>
             </div>
           </div>
           <div className="input-group input-group-flat d-inline-flex mb-4">
@@ -306,7 +340,7 @@ const Sidebar = () => {
                                           : "none",
                                     }}
                                   >
-                                    {title?.submenuItems?.map(
+                                    {title?.submenuItems?.filter((item: any) => hasAccess(item?.roles)).map(
                                       (item: any, j: any) => (
                                         <li
                                           className={
@@ -354,7 +388,7 @@ const Sidebar = () => {
                                                     : "none",
                                               }}
                                             >
-                                              {item?.submenuItems?.map(
+                                              {item?.submenuItems?.filter((items: any) => hasAccess(items?.roles)).map(
                                                 (items: any, k: any) => (
                                                   <li key={`submenu-item-${k}`}>
                                                     <Link

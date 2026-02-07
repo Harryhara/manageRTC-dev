@@ -25,13 +25,18 @@ const jobsController = (socket, io) => {
   // Check role permissions
   const isAdmin = socket.userMetadata?.role === "admin";
   const isHR = socket.userMetadata?.role === "hr";
-  const isAuthorized = isAdmin || isHR;
+  const isManager = socket.userMetadata?.role === "manager";
+  const isSuperadmin = socket.userMetadata?.role === "superadmin";
+  // For read operations: admin, hr, manager, superadmin
+  const isAuthorizedRead = isAdmin || isHR || isManager || isSuperadmin;
+  // For write/delete operations: admin, hr, superadmin
+  const isAuthorizedWrite = isAdmin || isHR || isSuperadmin;
 
   // Create job - admin only
   socket.on("job:create", async (data) => {
     try {
       console.log("[Jobs] job:create event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
-      if (!isAdmin) throw new Error("Unauthorized: Only admin can create jobs");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Only admin, HR, or superadmin can create jobs");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -49,9 +54,10 @@ const jobsController = (socket, io) => {
 
       socket.emit("job:create-response", result);
 
-      // Broadcast to admin and HR rooms to update job lists
+      // Broadcast to admin, HR, and manager rooms to update job lists
       io.to(`admin_room_${companyId}`).emit("job:job-created", result);
       io.to(`hr_room_${companyId}`).emit("job:job-created", result);
+      io.to(`manager_room_${companyId}`).emit("job:job-created", result);
 
     } catch (error) {
       console.error("[Jobs] Error in job:create", { error: error.message });
@@ -63,7 +69,7 @@ const jobsController = (socket, io) => {
   socket.on("job:getAll", async (filters = {}) => {
     try {
       console.log("[Jobs] job:getAll event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, filters });
-      if (!isAuthorized) throw new Error("Unauthorized access");
+      if (!isAuthorizedRead) throw new Error("Unauthorized access");
 
       const companyId = validateCompanyAccess(socket);
       const result = await jobsService.getJobs(companyId, filters);
@@ -84,7 +90,7 @@ const jobsController = (socket, io) => {
   socket.on("job:getAllData", async (filters = {}) => {
     try {
       console.log("[Jobs] job:getAllData event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, filters });
-      if (!isAuthorized) throw new Error("Unauthorized access");
+      if (!isAuthorizedRead) throw new Error("Unauthorized access");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -113,7 +119,7 @@ const jobsController = (socket, io) => {
   socket.on("job:getById", async (jobId) => {
     try {
       console.log("[Jobs] job:getById event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, jobId });
-      if (!isAuthorized) throw new Error("Unauthorized access");
+      if (!isAuthorizedRead) throw new Error("Unauthorized access");
 
       const companyId = validateCompanyAccess(socket);
       const result = await jobsService.getJobById(companyId, jobId);
@@ -134,7 +140,7 @@ const jobsController = (socket, io) => {
   socket.on("job:update", async (data) => {
     try {
       console.log("[Jobs] job:update event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
-      if (!isAdmin) throw new Error("Unauthorized: Only admin can update jobs");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Only admin, HR, or superadmin can update jobs");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -150,9 +156,10 @@ const jobsController = (socket, io) => {
 
       socket.emit("job:update-response", result);
 
-      // Broadcast to admin and HR rooms to update job lists
+      // Broadcast to admin, HR, and manager rooms to update job lists
       io.to(`admin_room_${companyId}`).emit("job:job-updated", result);
       io.to(`hr_room_${companyId}`).emit("job:job-updated", result);
+      io.to(`manager_room_${companyId}`).emit("job:job-updated", result);
 
     } catch (error) {
       console.error("[Jobs] Error in job:update", { error: error.message });
@@ -164,7 +171,7 @@ const jobsController = (socket, io) => {
   socket.on("job:delete", async (jobId) => {
     try {
       console.log("[Jobs] job:delete event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, jobId });
-      if (!isAdmin) throw new Error("Unauthorized: Only admin can delete jobs");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Only admin, HR, or superadmin can delete jobs");
 
       const companyId = validateCompanyAccess(socket);
       const result = await jobsService.deleteJob(companyId, jobId);
@@ -175,9 +182,10 @@ const jobsController = (socket, io) => {
 
       socket.emit("job:delete-response", result);
 
-      // Broadcast to admin and HR rooms to update job lists
+      // Broadcast to admin, HR, and manager rooms to update job lists
       io.to(`admin_room_${companyId}`).emit("job:job-deleted", result);
       io.to(`hr_room_${companyId}`).emit("job:job-deleted", result);
+      io.to(`manager_room_${companyId}`).emit("job:job-deleted", result);
 
     } catch (error) {
       console.error("[Jobs] Error in job:delete", { error: error.message });
@@ -189,7 +197,7 @@ const jobsController = (socket, io) => {
   socket.on("job:getStats", async () => {
     try {
       console.log("[Jobs] job:getStats event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
-      if (!isAuthorized) throw new Error("Unauthorized access");
+      if (!isAuthorizedRead) throw new Error("Unauthorized access");
 
       const companyId = validateCompanyAccess(socket);
       const result = await jobsService.getJobStats(companyId);
@@ -210,7 +218,7 @@ const jobsController = (socket, io) => {
   socket.on("job:export-pdf", async () => {
     try {
       console.log("[Jobs] job:export-pdf event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
-      if (!isAuthorized) throw new Error("Unauthorized access");
+      if (!isAuthorizedRead) throw new Error("Unauthorized access");
 
       const companyId = validateCompanyAccess(socket);
       const result = await jobsService.exportJobsPDF(companyId);
@@ -231,7 +239,7 @@ const jobsController = (socket, io) => {
   socket.on("job:export-excel", async () => {
     try {
       console.log("[Jobs] job:export-excel event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
-      if (!isAuthorized) throw new Error("Unauthorized access");
+      if (!isAuthorizedRead) throw new Error("Unauthorized access");
 
       const companyId = validateCompanyAccess(socket);
       const result = await jobsService.exportJobsExcel(companyId);

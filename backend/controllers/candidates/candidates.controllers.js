@@ -22,15 +22,22 @@ const candidateController = (socket, io) => {
     return socket.companyId;
   };
 
-  // Allow admin and HR roles
-  const isAuthorized = socket.userMetadata?.role === "admin" || socket.userMetadata?.role === "hr";
+  // Check role permissions
+  const isAdmin = socket.userMetadata?.role === "admin";
+  const isHR = socket.userMetadata?.role === "hr";
+  const isManager = socket.userMetadata?.role === "manager";
+  const isSuperadmin = socket.userMetadata?.role === "superadmin";
+  // For read operations: admin, hr, manager, superadmin
+  const isAuthorizedRead = isAdmin || isHR || isManager || isSuperadmin;
+  // For write/delete operations: admin, hr, superadmin
+  const isAuthorizedWrite = isAdmin || isHR || isSuperadmin;
 
   // CREATE candidate
   socket.on("candidate:create", async (data) => {
     try {
       console.log("[Candidate] candidate:create event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
 
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR role required");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Admin, HR, or superadmin role required");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -48,9 +55,10 @@ const candidateController = (socket, io) => {
 
       socket.emit("candidate:create-response", result);
 
-      // Broadcast to admin and HR rooms to update candidate lists
+      // Broadcast to admin, HR, and manager rooms to update candidate lists
       io.to(`admin_room_${companyId}`).emit("candidate:candidate-created", result);
       io.to(`hr_room_${companyId}`).emit("candidate:candidate-created", result);
+      io.to(`manager_room_${companyId}`).emit("candidate:candidate-created", result);
     } catch (error) {
       console.error("[Candidate] Error in candidate:create", { error: error.message });
       socket.emit("candidate:create-response", { done: false, error: error.message });
@@ -61,6 +69,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:getAll", async (filters = {}) => {
     try {
       console.log("[Candidate] candidate:getAll event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, filters });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -82,6 +93,9 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:getById event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, candidateId });
 
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
+
       const companyId = validateCompanyAccess(socket);
 
       const result = await candidateService.getCandidateById(companyId, candidateId);
@@ -102,7 +116,7 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:update event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
 
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR role required");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Admin, HR, or superadmin role required");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -118,9 +132,10 @@ const candidateController = (socket, io) => {
 
       socket.emit("candidate:update-response", result);
 
-      // Broadcast to admin and HR rooms to update candidate lists
+      // Broadcast to admin, HR, and manager rooms to update candidate lists
       io.to(`admin_room_${companyId}`).emit("candidate:candidate-updated", result);
       io.to(`hr_room_${companyId}`).emit("candidate:candidate-updated", result);
+      io.to(`manager_room_${companyId}`).emit("candidate:candidate-updated", result);
     } catch (error) {
       console.error("[Candidate] Error in candidate:update", { error: error.message });
       socket.emit("candidate:update-response", { done: false, error: error.message });
@@ -132,7 +147,7 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:delete event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, candidateId });
 
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR role required");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Admin, HR, or superadmin role required");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -144,9 +159,10 @@ const candidateController = (socket, io) => {
 
       socket.emit("candidate:delete-response", result);
 
-      // Broadcast to admin and HR rooms to update candidate lists
+      // Broadcast to admin, HR, and manager rooms to update candidate lists
       io.to(`admin_room_${companyId}`).emit("candidate:candidate-deleted", result);
       io.to(`hr_room_${companyId}`).emit("candidate:candidate-deleted", result);
+      io.to(`manager_room_${companyId}`).emit("candidate:candidate-deleted", result);
     } catch (error) {
       console.error("[Candidate] Error in candidate:delete", { error: error.message });
       socket.emit("candidate:delete-response", { done: false, error: error.message });
@@ -158,7 +174,7 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:updateStatus event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
 
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR role required");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Admin, HR, or superadmin role required");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -180,9 +196,10 @@ const candidateController = (socket, io) => {
 
       socket.emit("candidate:updateStatus-response", result);
 
-      // Broadcast to admin and HR rooms to update candidate lists
+      // Broadcast to admin, HR, and manager rooms to update candidate lists
       io.to(`admin_room_${companyId}`).emit("candidate:status-updated", result);
       io.to(`hr_room_${companyId}`).emit("candidate:status-updated", result);
+      io.to(`manager_room_${companyId}`).emit("candidate:status-updated", result);
     } catch (error) {
       console.error("[Candidate] Error in candidate:updateStatus", { error: error.message });
       socket.emit("candidate:updateStatus-response", { done: false, error: error.message });
@@ -193,6 +210,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:getAllData", async (filters = {}) => {
     try {
       console.log("[Candidate] candidate:getAllData event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, filters });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -221,6 +241,9 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:getStats event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
 
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
+
       const companyId = validateCompanyAccess(socket);
 
       const result = await candidateService.getCandidateStats(companyId);
@@ -236,6 +259,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:filter", async (filters) => {
     try {
       console.log("[Candidate] candidate:filter event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, filters });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -256,6 +282,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:search", async (searchQuery) => {
     try {
       console.log("[Candidate] candidate:search event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, searchQuery });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -278,6 +307,9 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:export-pdf event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
 
+      // Role check: Only admin, hr, manager, superadmin can export candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to export candidates");
+
       const companyId = validateCompanyAccess(socket);
 
       const result = await candidateService.exportCandidatesPDF(companyId);
@@ -294,6 +326,9 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:export-excel event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId });
 
+      // Role check: Only admin, hr, manager, superadmin can export candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to export candidates");
+
       const companyId = validateCompanyAccess(socket);
 
       const result = await candidateService.exportCandidatesExcel(companyId);
@@ -309,6 +344,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:getByStatus", async (status) => {
     try {
       console.log("[Candidate] candidate:getByStatus event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, status });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -331,7 +369,7 @@ const candidateController = (socket, io) => {
     try {
       console.log("[Candidate] candidate:bulkUpdate event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, data });
 
-      if (!isAuthorized) throw new Error("Unauthorized: Admin or HR role required");
+      if (!isAuthorizedWrite) throw new Error("Unauthorized: Admin, HR, or superadmin role required");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -372,9 +410,10 @@ const candidateController = (socket, io) => {
 
       socket.emit("candidate:bulkUpdate-response", response);
 
-      // Broadcast to admin and HR rooms to update candidate lists
+      // Broadcast to admin, HR, and manager rooms to update candidate lists
       io.to(`admin_room_${companyId}`).emit("candidate:bulk-updated", response);
       io.to(`hr_room_${companyId}`).emit("candidate:bulk-updated", response);
+      io.to(`manager_room_${companyId}`).emit("candidate:bulk-updated", response);
     } catch (error) {
       console.error("[Candidate] Error in candidate:bulkUpdate", { error: error.message });
       socket.emit("candidate:bulkUpdate-response", { done: false, error: error.message });
@@ -385,6 +424,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:getByRole", async (role) => {
     try {
       console.log("[Candidate] candidate:getByRole event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, role });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 
@@ -406,6 +448,9 @@ const candidateController = (socket, io) => {
   socket.on("candidate:getByExperience", async (experienceLevel) => {
     try {
       console.log("[Candidate] candidate:getByExperience event", { user: socket.user?.sub, role: socket.userMetadata?.role, companyId: socket.companyId, experienceLevel });
+
+      // Role check: Only admin, hr, manager, superadmin can access candidates
+      if (!isAuthorizedRead) throw new Error("Unauthorized: You do not have permission to access candidates");
 
       const companyId = validateCompanyAccess(socket);
 

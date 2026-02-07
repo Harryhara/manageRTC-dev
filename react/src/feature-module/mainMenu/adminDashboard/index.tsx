@@ -15,6 +15,7 @@ import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import RequestModals from "../../../core/modals/requestModal";
 import TodoModal from "../../../core/modals/todoModal";
 import { useAdminDashboardREST } from "../../../hooks/useAdminDashboardREST";
+import { useUserProfileREST } from "../../../hooks/useUserProfileREST";
 import { useSocket } from "../../../SocketContext";
 import { all_routes } from "../../router/all_routes";
 interface DashboardData {
@@ -190,6 +191,9 @@ const AdminDashboard = () => {
     fetchTaskStatistics,
     fetchEmployeesByDepartment,
   } = useAdminDashboardREST();
+
+  // REST API Hook for current user profile (for avatar display)
+  const { profile } = useUserProfileREST();
 
   // Local state (synced with REST data)
   const [dashboardData, setDashboardData] = useState<DashboardData>({});
@@ -1425,9 +1429,13 @@ const AdminDashboard = () => {
             <div className="card-body d-flex align-items-center justify-content-between flex-wrap pb-1">
               <div className="d-flex align-items-center mb-3">
                 <span className="avatar avatar-xl flex-shrink-0">
-                  {isSignedIn && user ? (
+                  {isSignedIn && (profile || user) ? (
                     <img
-                      src={getUserImage()}
+                      src={
+                        (profile as any)?.companyLogo || // For admin: company logo
+                        user?.imageUrl || // Fallback to Clerk user image
+                        "assets/img/profiles/avatar-31.jpg"
+                      }
                       alt="Profile"
                       className="rounded-circle"
                       onError={handleImageError}

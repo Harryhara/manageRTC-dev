@@ -14,6 +14,8 @@ import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import { all_routes } from "../../router/all_routes";
 // REST API Hook for HR Dashboard
 import { useHRDashboardREST } from "../../../hooks/useHRDashboardREST";
+// REST API Hook for user profile
+import { useUserProfileREST } from "../../../hooks/useUserProfileREST";
 
 const HRDashboard = () => {
   const routes = all_routes;
@@ -29,6 +31,9 @@ const HRDashboard = () => {
     fetchDashboardStats
   } = useHRDashboardREST();
 
+  // REST API Hook for current user profile (for avatar display)
+  const { profile } = useUserProfileREST();
+
   // Filter states
   const [filters, setFilters] = useState({
     employeeDistribution: "all",
@@ -43,6 +48,14 @@ const HRDashboard = () => {
   };
 
   const getUserName = () => {
+    // Use profile data from REST API first, then fallback to Clerk user
+    if (profile) {
+      const firstName = (profile as any).firstName;
+      const lastName = (profile as any).lastName;
+      if (firstName || lastName) {
+        return `${firstName || ""} ${lastName || ""}`.trim();
+      }
+    }
     if (!user) return "HR Manager";
     return (
       user.fullName ||
@@ -876,11 +889,42 @@ const HRDashboard = () => {
             <div className="card-body d-flex align-items-center justify-content-between flex-wrap pb-1">
               <div className="d-flex align-items-center mb-3">
                 <span className="avatar avatar-xl flex-shrink-0">
-                  <ImageWithBasePath
-                    src={user?.imageUrl || "assets/img/profiles/avatar-31.jpg"}
-                    className="rounded-circle"
-                    alt="img"
-                  />
+                  {(() => {
+                    // Determine avatar source based on role
+                    let avatarSrc: string | undefined | null;
+                    if (profile?.role === 'admin') {
+                      // Admin uses companyLogo
+                      avatarSrc = (profile as any).companyLogo;
+                    } else if (profile?.role === 'hr' || profile?.role === 'employee') {
+                      // HR and Employee use profileImage
+                      avatarSrc = (profile as any).profileImage;
+                    }
+
+                    // Ensure path starts with / if it's a relative path
+                    if (avatarSrc && !avatarSrc.startsWith('/') && !avatarSrc.startsWith('http')) {
+                      avatarSrc = `/${avatarSrc}`;
+                    }
+
+                    const finalSrc = avatarSrc || user?.imageUrl || '/assets/img/profiles/profile.png';
+
+                    return finalSrc ? (
+                      <img
+                        src={finalSrc}
+                        className="rounded-circle"
+                        alt="Profile"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement;
+                          target.src = "/assets/img/profiles/profile.png";
+                        }}
+                      />
+                    ) : (
+                      <ImageWithBasePath
+                        src="assets/img/profiles/profile.png"
+                        alt="Profile"
+                        className="rounded-circle"
+                      />
+                    );
+                  })()}
                 </span>
                 <div className="ms-3">
                   <h3 className="mb-2">

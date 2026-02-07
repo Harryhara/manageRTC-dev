@@ -19,6 +19,27 @@ import {
 } from '../../utils/apiResponse.js';
 
 /**
+ * Helper function to check if user has required role
+ * @param {Object} user - User object from extractUser
+ * @param {string[]} allowedRoles - Array of allowed roles
+ * @returns {boolean} - True if user has access
+ */
+const ensureRole = (user, allowedRoles = []) => {
+  const role = user?.role?.toLowerCase();
+  return allowedRoles.includes(role);
+};
+
+/**
+ * Helper function to send 403 Forbidden response
+ */
+const sendForbidden = (res, message = 'You do not have permission to access this resource') => {
+  return res.status(403).json({
+    success: false,
+    error: { message }
+  });
+};
+
+/**
  * Get all departments with optional filters
  * @route GET /api/departments
  */
@@ -158,6 +179,11 @@ export const createDepartment = asyncHandler(async (req, res) => {
     const departmentData = req.body;
     const user = extractUser(req);
 
+    // Role check: Only admin, hr, superadmin can create departments
+    if (!ensureRole(user, ['admin', 'hr', 'superadmin'])) {
+      return sendForbidden(res, 'Only Admin and HR can create departments');
+    }
+
     console.log('[Department Controller] createDepartment - companyId:', user.companyId);
 
     // Get tenant collections
@@ -227,6 +253,11 @@ export const updateDepartment = asyncHandler(async (req, res) => {
     const updateData = req.body;
     const user = extractUser(req);
 
+    // Role check: Only admin, hr, superadmin can update departments
+    if (!ensureRole(user, ['admin', 'hr', 'superadmin'])) {
+      return sendForbidden(res, 'Only Admin and HR can update departments');
+    }
+
     console.log('[Department Controller] updateDepartment - id:', id, 'companyId:', user.companyId);
 
     // Get tenant collections
@@ -293,6 +324,11 @@ export const deleteDepartment = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const user = extractUser(req);
 
+    // Role check: Only admin and superadmin can delete departments
+    if (!ensureRole(user, ['admin', 'superadmin'])) {
+      return sendForbidden(res, 'Only Admin can delete departments');
+    }
+
     console.log('[Department Controller] deleteDepartment - id:', id, 'companyId:', user.companyId);
 
     // Get tenant collections
@@ -346,6 +382,11 @@ export const updateDepartmentStatus = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
     const user = extractUser(req);
+
+    // Role check: Only admin, hr, superadmin can update department status
+    if (!ensureRole(user, ['admin', 'hr', 'superadmin'])) {
+      return sendForbidden(res, 'Only Admin and HR can update department status');
+    }
 
     console.log('[Department Controller] updateDepartmentStatus - id:', id, 'status:', status, 'companyId:', user.companyId);
 

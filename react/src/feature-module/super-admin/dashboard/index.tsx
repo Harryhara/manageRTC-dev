@@ -862,10 +862,14 @@ const SuperAdminDashboard = () => {
                           {company.users || 0} Users
                         </p>
                         <h6
-                          className="fs-13 fw-normal text-info"
+                          className={`fs-13 fw-normal ${
+                            company.domain === "Not configured"
+                              ? "text-muted"
+                              : "text-info"
+                          }`}
                           title={`Domain: ${company.domain}`}
                         >
-                          {company.domain || "domain.example.com"}
+                          {company.domain || "Not configured"}
                         </h6>
                       </div>
                     </div>

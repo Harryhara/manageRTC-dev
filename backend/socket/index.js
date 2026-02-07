@@ -126,6 +126,22 @@ export const socketHandler = (httpServer) => {
         // Store user metadata on socket for security checks
         socket.userMetadata = user.publicMetadata;
 
+        // DEBUG: Log full user data to understand what's available
+        console.log(`[DEBUG] Clerk User Data for ${user.id}:`, {
+          firstName: user.firstName,
+          lastName: user.lastName,
+          username: user.username,
+          fullName: user.fullName,
+          primaryEmailAddress: user.primaryEmailAddress?.emailAddress,
+          emailAddresses: user.emailAddresses?.map(e => e.emailAddress),
+          primaryPhoneNumber: user.primaryPhoneNumber?.phoneNumber,
+          phoneNumbers: user.phoneNumbers?.map(p => p.phoneNumber),
+          imageUrl: user.imageUrl,
+          publicMetadata: user.publicMetadata,
+          unsafeMetadata: user.unsafeMetadata,
+          privateMetadata: user.privateMetadata,
+        });
+
         // Check if role exists, else assign default role based on metadata
         let role = user.publicMetadata?.role;
         // Check for both 'companyId' and 'company' field names in metadata
@@ -200,6 +216,8 @@ export const socketHandler = (httpServer) => {
         socket.role = role;
         socket.companyId = companyId;
         socket.authenticated = true;
+        // Store full user object for profile operations
+        socket.clerkUser = user;
 
         console.log(
           `Socket authentication complete for user: ${verifiedToken.sub}, role: ${role}, company: ${companyId}`

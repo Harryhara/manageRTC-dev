@@ -24,6 +24,10 @@ import {
 import { sendEmployeeCredentialsEmail } from '../../utils/emailer.js';
 import { broadcastEmployeeEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
 import { deleteUploadedFile, getPublicUrl } from '../../config/multer.config.js';
+import {
+  getSystemDefaultAvatarUrl,
+  canUserDeleteAvatar
+} from '../../utils/avatarUtils.js';
 
 /**
  * Generate secure random password for new employees
@@ -152,7 +156,15 @@ export const getEmployees = asyncHandler(async (req, res) => {
     {
       $addFields: {
         department: { $arrayElemAt: ['$departmentInfo', 0] },
-        designation: { $arrayElemAt: ['$designationInfo', 0] }
+        designation: { $arrayElemAt: ['$designationInfo', 0] },
+        // Assign default avatar for employees without profile image
+        profileImage: {
+          $cond: {
+            if: { $and: [{ $ne: ['$profileImage', null] }, { $ne: ['$profileImage', ''] }] },
+            then: '$profileImage',
+            else: getSystemDefaultAvatarUrl()
+          }
+        }
       }
     },
     {
@@ -280,7 +292,15 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
       $addFields: {
         department: { $arrayElemAt: ['$departmentInfo', 0] },
         designation: { $arrayElemAt: ['$designationInfo', 0] },
-        reportingTo: { $arrayElemAt: ['$reportingToInfo', 0] }
+        reportingTo: { $arrayElemAt: ['$reportingToInfo', 0] },
+        // Assign default avatar for employees without profile image
+        profileImage: {
+          $cond: {
+            if: { $and: [{ $ne: ['$profileImage', null] }, { $ne: ['$profileImage', ''] }] },
+            then: '$profileImage',
+            else: getSystemDefaultAvatarUrl()
+          }
+        }
       }
     },
     {
@@ -477,6 +497,9 @@ export const createEmployee = asyncHandler(async (req, res) => {
       password: password, // Store password (for reference)
       role: normalizedData.account?.role || 'Employee',
     },
+    // Assign default avatar if no profile image provided
+    profileImage: normalizedData.profileImage || getSystemDefaultAvatarUrl(),
+    profileImagePath: normalizedData.profileImagePath || null,
     createdAt: new Date(),
     updatedAt: new Date(),
     createdBy: user.userId,
@@ -845,6 +868,11 @@ export const getMyProfile = asyncHandler(async (req, res) => {
 
   // Remove sensitive fields
   const { salary, bank, emergencyContacts, ...sanitizedEmployee } = employee;
+
+  // Assign default avatar if employee has no profile image
+  if (!sanitizedEmployee.profileImage || sanitizedEmployee.profileImage.trim() === '') {
+    sanitizedEmployee.profileImage = getSystemDefaultAvatarUrl();
+  }
 
   return sendSuccess(res, sanitizedEmployee);
 });
@@ -1494,6 +1522,18 @@ export const deleteEmployeeProfileImage = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Employee', id);
   }
 
+  // Check if the current avatar is the system default - prevent deletion
+  const currentAvatar = employee.profileImage || employee.profileImagePath;
+  const deleteCheck = canUserDeleteAvatar(currentAvatar);
+
+  if (!deleteCheck.canDelete) {
+    throw buildError(
+      400,
+      deleteCheck.reason || 'Cannot delete this avatar',
+      'CANNOT_DELETE_DEFAULT_AVATAR'
+    );
+  }
+
   // Delete old image if exists
   let deletedPath = null;
   if (employee.profileImagePath) {
@@ -1501,13 +1541,15 @@ export const deleteEmployeeProfileImage = asyncHandler(async (req, res) => {
     deleteUploadedFile(employee.profileImagePath);
   }
 
-  // Update employee to remove image
+  // Assign system default avatar instead of null
+  const defaultAvatarUrl = getSystemDefaultAvatarUrl();
+
   const result = await collections.employees.updateOne(
     { _id: new ObjectId(id) },
     {
       $set: {
-        profileImagePath: null,
-        profileImage: null,
+        profileImagePath: null, // Default avatar is served as static, not uploaded
+        profileImage: defaultAvatarUrl,
         updatedAt: new Date(),
         updatedBy: user.userId
       }
@@ -1529,8 +1571,9 @@ export const deleteEmployeeProfileImage = asyncHandler(async (req, res) => {
 
   return sendSuccess(res, {
     deleted: !!deletedPath,
-    previousPath: deletedPath
-  }, 'Profile image deleted successfully');
+    previousPath: deletedPath,
+    reassignedTo: defaultAvatarUrl
+  }, 'Profile image deleted and reassigned to default avatar');
 });
 
 /**

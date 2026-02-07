@@ -115,7 +115,27 @@ const profileController = (socket, io) => {
         throw new Error("User ID not found");
       }
 
-      const result = await profileService.getCurrentUserProfile(companyId, userId);
+      // Pass clerk user data from socket for profile creation if needed
+      const clerkUserData = {
+        firstName: socket.clerkUser?.firstName,
+        lastName: socket.clerkUser?.lastName,
+        fullName: socket.clerkUser?.fullName,
+        username: socket.clerkUser?.username,
+        email: socket.clerkUser?.primaryEmailAddress?.emailAddress || socket.clerkUser?.emailAddresses?.[0]?.emailAddress,
+        emailAddresses: socket.clerkUser?.emailAddresses,
+        phoneNumbers: socket.clerkUser?.phoneNumbers,
+        imageUrl: socket.clerkUser?.imageUrl,
+        publicMetadata: socket.userMetadata
+      };
+
+      console.log("[Profile] Clerk user data being passed:", {
+        userId: socket.userId,
+        hasClerkUser: !!socket.clerkUser,
+        clerkUserDataKeys: socket.clerkUser ? Object.keys(socket.clerkUser) : [],
+        ...clerkUserData
+      });
+
+      const result = await profileService.getCurrentUserProfile(companyId, userId, clerkUserData);
 
       if (!result.done) {
         console.error("[Profile] Failed to get current user profile, error:", result.error);
