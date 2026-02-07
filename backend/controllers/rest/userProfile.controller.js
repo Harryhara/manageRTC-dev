@@ -5,6 +5,7 @@
  * - All roles: Full profile with address, emergency contact, social links, skills, bio
  */
 
+import bcrypt from 'bcrypt';
 import { ObjectId } from 'mongodb';
 import { getsuperadminCollections, getTenantCollections } from '../../config/db.js';
 import {
@@ -18,7 +19,6 @@ import {
   sendSuccess
 } from '../../utils/apiResponse.js';
 import { getSystemDefaultAvatarUrl, isValidAvatar } from '../../utils/avatarUtils.js';
-import bcrypt from 'bcrypt';
 
 /**
  * Helper function to get valid avatar URL with proper validation
