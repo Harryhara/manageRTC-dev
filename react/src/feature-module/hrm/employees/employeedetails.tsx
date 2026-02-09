@@ -1,6 +1,7 @@
 import { DatePicker } from "antd";
+import { Modal } from "bootstrap";
 import React, { useEffect, useRef, useState } from 'react';
-import { Link, useParams, } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { toast, ToastContainer } from "react-toastify";
 import { Socket } from "socket.io-client";
 import CollapseHeader from '../../../core/common/collapse-header/collapse-header';
@@ -10,12 +11,19 @@ import ImageWithBasePath from '../../../core/common/imageWithBasePath';
 import PromotionDetailsModal from '../../../core/modals/PromotionDetailsModal';
 import ResignationDetailsModal from '../../../core/modals/ResignationDetailsModal';
 import TerminationDetailsModal from '../../../core/modals/TerminationDetailsModal';
+import EditEmployeeModal from '../../../core/modals/EditEmployeeModal';
 import { useSocket } from "../../../SocketContext";
 import { all_routes } from '../../router/all_routes';
 // REST API Hooks for HRM operations
+import { useBatchesREST } from "../../../hooks/useBatchesREST";
 import { useDepartmentsREST } from "../../../hooks/useDepartmentsREST";
 import { useDesignationsREST } from "../../../hooks/useDesignationsREST";
 import { useEmployeesREST } from "../../../hooks/useEmployeesREST";
+import { usePoliciesREST, type Policy, type PolicyAssignment } from "../../../hooks/usePoliciesREST";
+import { usePromotionsREST, type Promotion } from "../../../hooks/usePromotionsREST";
+import { useResignationsREST, type Resignation } from "../../../hooks/useResignationsREST";
+import { useShiftsREST } from "../../../hooks/useShiftsREST";
+import { useTerminationsREST, type Termination } from "../../../hooks/useTerminationsREST";
 
 import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -200,22 +208,28 @@ export interface Employee {
     timeZone: string;
     companyName: string;
     about: string;
-    status: string;
+    status: "Active" | "Inactive" | "On Notice" | "Resigned" | "Terminated" | "On Leave";
     reportOffice?: string;
     managerId?: string;
     leadId?: string;
+    reportingTo?: string;
+    reportingManagerName?: string;
     avatar: string;
     yearsOfExperience?: number;
-    contact: ContactInfo;
-    personal: PersonalInfo;
-    account: AccountInfo;
+    email: string;
+    phone: string;
+    gender?: string;
+    dateOfBirth?: string;
+    address?: Address;
+    passport?: Passport;
+    account?: AccountInfo;
     emergencyContacts?: EmergencyContact | EmergencyContact[];
-    bank: BankInfo;
+    bank?: BankInfo;
     family?: FamilyInfo | FamilyInfo[];
     education?: EducationEntry | EducationEntry[];
     experience?: ExperienceEntry | ExperienceEntry[];
     assets: Asset[];
-    statutory: Statutory;
+    statutory?: Statutory;
     updatedBy: string;
     designationId: string;
     avatarUrl: string;
@@ -230,86 +244,11 @@ export interface Employee {
     batchShiftName?: string;
     batchShiftTiming?: string;
     batchShiftColor?: string;
+    employmentType?: "Full-time" | "Part-time" | "Contract" | "Intern";
 }
 
-interface DepartmentDesignationMapping {
-    departmentId: string;
-    departmentName: string;
-    designationIds: string[];
-}
-
-interface Policy {
-    _id: string;
-    policyName: string;
-    policyDescription: string;
-    effectiveDate: string;
-    applyToAll?: boolean;  // When true, policy applies to all employees
-    assignTo?: DepartmentDesignationMapping[];
-}
-
-interface Promotion {
-    _id: string;
-    employee: {
-        id: string;
-        name: string;
-        image: string;
-    };
-    promotionFrom: {
-        department: {
-            id: string;
-            name: string;
-        };
-        designation: {
-            id: string;
-            name: string;
-        };
-    };
-    promotionTo: {
-        department: {
-            id: string;
-            name: string;
-        };
-        designation: {
-            id: string;
-            name: string;
-        };
-    };
-    promotionDate: string;
-    promotionType?: string;
-    reason?: string;
-    notes?: string;
-}
-
-interface Resignation {
-    resignationId: string;
-    employeeName: string;
-    employeeId: string;
-    employeeImage?: string;
-    department: string;
-    departmentId: string;
-    designation?: string;
-    resignationDate: string;
-    noticeDate: string;
-    reason?: string;
-    notes?: string;
-}
-
-interface Termination {
-    terminationId: string;
-    employeeName: string | null;
-    employeeId: string | null;
-    employee_id?: string | null;
-    employeeImage?: string | null;
-    department: string | null;
-    departmentId: string | null;
-    designation?: string | null;
-    terminationDate: string;
-    noticeDate: string;
-    reason: string;
-    terminationType: string;
-    status?: string;
-    lastWorkingDate?: string;
-}
+// Use PolicyAssignment from usePoliciesREST instead of local DepartmentDesignationMapping
+type DepartmentDesignationMapping = PolicyAssignment;
 
 const EmployeeDetails = () => {
     // Dropdown options
@@ -865,9 +804,8 @@ const EmployeeDetails = () => {
 
         // Submit personal details to backend using REST API
         const personalData = {
-            ...(employee.personal || {}),
             passport: {
-                ...(employee.personal?.passport || {}),
+                ...(employee.passport || {}),
                 number: personalFormData.passportNo,
                 expiryDate: personalFormData.passportExpiryDate
                     ? dayjs(personalFormData.passportExpiryDate).format(DATE_FORMAT)
@@ -910,15 +848,15 @@ const EmployeeDetails = () => {
     };
     const resetPersonalForm = () => {
         setPersonalFormData({
-            passportNo: employee.personal?.passport?.number || "",
-            passportExpiryDate: employee.personal?.passport?.expiryDate
-                ? toDayjsDate(employee.personal.passport.expiryDate)
+            passportNo: employee.passport?.number || "",
+            passportExpiryDate: employee.passport?.expiryDate
+                ? toDayjsDate(employee.passport.expiryDate)
                 : null,
-            nationality: employee.personal?.passport?.country || "",
-            religion: employee.personal?.religion || "",
-            maritalStatus: employee.personal?.maritalStatus || "Select",
-            employmentOfSpouse: !!employee.personal?.employmentOfSpouse,
-            noOfChildren: employee.personal?.noOfChildren || 0
+            nationality: employee.passport?.country || "",
+            religion: (employee as any).religion || "",
+            maritalStatus: (employee as any).maritalStatus || "Select",
+            employmentOfSpouse: !!(employee as any).employmentOfSpouse,
+            noOfChildren: (employee as any).noOfChildren || 0
         });
     };
     // handleEmergency form validation and submission
@@ -1273,6 +1211,8 @@ const EmployeeDetails = () => {
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [employee, setEmployee] = useState<Employee | null>(null);
+    // Separate state for modal to prevent modal from opening when employee data loads
+    const [editingEmployee, setEditingEmployee] = useState<Employee | null>(null);
     const getEmergencyContact = React.useCallback((): EmergencyContact | null => {
         const contact = Array.isArray(employee?.emergencyContacts)
             ? employee?.emergencyContacts?.[0]
@@ -1300,6 +1240,16 @@ const EmployeeDetails = () => {
     const { getEmployeeDetails } = employeesREST;
     const { fetchDepartments, departments } = useDepartmentsREST();
     const { fetchDesignations, designations } = useDesignationsREST();
+    const { batches, fetchBatches } = useBatchesREST();
+    const { shifts: allShifts } = useShiftsREST();
+    const navigate = useNavigate();
+
+    // REST API Hooks for policies, promotions, resignations, and terminations
+    const { policies, fetchPolicies, loading: policiesLoading } = usePoliciesREST();
+    const { promotions } = usePromotionsREST();
+    const { resignations, fetchResignations } = useResignationsREST();
+    const { terminations, fetchTerminations } = useTerminationsREST();
+
     const socket = useSocket() as Socket | null;
 
     const socketInitRef = useRef(false);
@@ -1308,14 +1258,10 @@ const EmployeeDetails = () => {
     employeesRESTRef.current = employeesREST;
     employeeIdRef.current = employeeId;
 
-    const [policies, setPolicies] = useState<Policy[]>([]);
-    const [policiesLoading, setPoliciesLoading] = useState(false);
+    // Local UI state (not replaced by REST hooks)
     const [viewingPolicy, setViewingPolicy] = useState<Policy | null>(null);
     const [department, setDepartment] = useState<Option[]>([]);
     const [designation, setDesignation] = useState<Option[]>([]);
-    const [promotions, setPromotions] = useState<Promotion[]>([]);
-    const [resignations, setResignations] = useState<Resignation[]>([]);
-    const [terminations, setTerminations] = useState<Termination[]>([]);
 
     // Initialize edit form data when employee data is loaded
     useEffect(() => {
@@ -1323,17 +1269,14 @@ const EmployeeDetails = () => {
             setEditFormData({
                 ...employee,
                 dateOfJoining: employee.dateOfJoining || "",
-                personal: {
-                    ...employee.personal,
-                    birthday: employee.personal?.birthday || null,
-                    gender: employee.personal?.gender || "",
-                    address: {
-                        street: employee.personal?.address?.street || "",
-                        city: employee.personal?.address?.city || "",
-                        state: employee.personal?.address?.state || "",
-                        postalCode: employee.personal?.address?.postalCode || "",
-                        country: employee.personal?.address?.country || "",
-                    }
+                dateOfBirth: employee.dateOfBirth || null,
+                gender: employee.gender || "",
+                address: {
+                    street: employee.address?.street || "",
+                    city: employee.address?.city || "",
+                    state: employee.address?.state || "",
+                    postalCode: employee.address?.postalCode || "",
+                    country: employee.address?.country || "",
                 }
             });
 
@@ -1347,15 +1290,15 @@ const EmployeeDetails = () => {
 
             // Initialize personal form data
             setPersonalFormData({
-                passportNo: employee.personal?.passport?.number || "",
-                passportExpiryDate: employee.personal?.passport?.expiryDate
-                    ? toDayjsDate(employee.personal.passport.expiryDate)
+                passportNo: employee.passport?.number || "",
+                passportExpiryDate: employee.passport?.expiryDate
+                    ? toDayjsDate(employee.passport.expiryDate)
                     : null,
-                nationality: employee.personal?.passport?.country || "",
-                religion: employee.personal?.religion || "",
-                maritalStatus: employee.personal?.maritalStatus || "Select",
-                employmentOfSpouse: !!employee.personal?.employmentOfSpouse,
-                noOfChildren: employee.personal?.noOfChildren || 0
+                nationality: employee.passport?.country || "",
+                religion: (employee as any).religion || "",
+                maritalStatus: (employee as any).maritalStatus || "Select",
+                employmentOfSpouse: !!(employee as any).employmentOfSpouse,
+                noOfChildren: (employee as any).noOfChildren || 0
             });
 
             const normalizedFamily = normalizeFamilyEntries(employee.family);
@@ -1409,9 +1352,9 @@ const EmployeeDetails = () => {
         if (name.includes('.')) {
             const parts = name.split('.');
             setEditFormData(prev => {
-                if (parts.length === 3 && parts[0] === 'personal' && parts[1] === 'address') {
-                    // Handle personal.address.field updates
-                    const currentAddress = prev.personal?.address || {
+                if (parts.length === 2 && parts[0] === 'address') {
+                    // Handle address.field updates
+                    const currentAddress = prev.address || {
                         street: "",
                         city: "",
                         state: "",
@@ -1420,12 +1363,9 @@ const EmployeeDetails = () => {
                     };
                     return {
                         ...prev,
-                        personal: {
-                            ...prev.personal,
-                            address: {
-                                ...currentAddress,
-                                [parts[2]]: value
-                            }
+                        address: {
+                            ...currentAddress,
+                            [parts[1]]: value
                         }
                     };
                 } else if (parts.length === 2) {
@@ -1457,18 +1397,11 @@ const EmployeeDetails = () => {
         const lifecycleStatuses = ["Terminated", "Resigned", "On Notice"];
         const currentStatus = editFormData.status || "Active";
 
-        const mergedPersonal = {
-            ...(employee?.personal || {}),
-            ...(editFormData.personal || {}),
-            address: {
-                ...(employee?.personal?.address || {}),
-                ...(editFormData.personal?.address || {})
-            },
-            passport: {
-                ...(employee?.personal?.passport || {}),
-                ...(editFormData.personal?.passport || {})
-            }
-        };
+        // Merge address if present in editFormData
+        const mergedAddress = editFormData.address || employee?.address || {};
+
+        // Merge passport if present in editFormData
+        const mergedPassport = editFormData.passport || employee?.passport || {};
 
         const payload: any = {
             employeeId: editFormData.employeeId || "",
@@ -1477,11 +1410,12 @@ const EmployeeDetails = () => {
             account: {
                 userName: editFormData.account?.userName || "",
             },
-            contact: {
-                email: editFormData.contact?.email || "",
-                phone: editFormData.contact?.phone || "",
-            },
-            personal: mergedPersonal,
+            email: editFormData.email || employee?.email || "",
+            phone: editFormData.phone || employee?.phone || "",
+            gender: editFormData.gender || employee?.gender || "",
+            dateOfBirth: editFormData.dateOfBirth || employee?.dateOfBirth || null,
+            address: mergedAddress,
+            passport: mergedPassport,
             companyName: editFormData.companyName || "",
             departmentId: editFormData.departmentId || "",
             designationId: editFormData.designationId || "",
@@ -1583,132 +1517,50 @@ const EmployeeDetails = () => {
         loadDepartments();
     }, [fetchDepartments]);
 
+    // Initialize batches and shifts for the edit modal
     useEffect(() => {
-        if (!socket || socketInitRef.current) return;
-        socketInitRef.current = true;
-
-        let isMounted = true;
-
-        setPoliciesLoading(true);
-
-        console.log('[EmployeeDetails] Emitting hr/policy/get');
-        socket.emit("hr/policy/get");
-
-        console.log('[EmployeeDetails] Emitting promotion:getAll');
-        socket.emit("promotion:getAll", {});
-
-        console.log('[EmployeeDetails] Emitting hr/resignation/resignationlist');
-        socket.emit("hr/resignation/resignationlist", { type: "alltime" });
-
-        console.log('[EmployeeDetails] Emitting hr/termination/terminationlist');
-        socket.emit("hr/termination/terminationlist", { type: "alltime" });
-
-        const handleGetPolicyResponse = (response: any) => {
-            if (!isMounted) return;
-            setPoliciesLoading(false);
-
-            if (response.done) {
-                setPolicies(response.data || []);
-            } else {
-                console.error("Failed to fetch policies:", response.error);
-                setPolicies([]);
+        const loadBatchesAndShifts = async () => {
+            try {
+                await fetchBatches();
+            } catch (err) {
+                console.error("Error fetching batches:", err);
             }
         };
 
-        const handleGetPromotionsResponse = (response: any) => {
-            console.log('[EmployeeDetails] Received promotions response:', response);
-            if (!isMounted) return;
+        loadBatchesAndShifts();
+    }, [fetchBatches]);
 
-            if (response.done) {
-                console.log('[EmployeeDetails] Setting promotions, count:', response.data?.length || 0);
-                console.log('[EmployeeDetails] Promotion data:', response.data);
-                setPromotions(response.data || []);
-            } else {
-                console.error("[EmployeeDetails] Failed to fetch promotions:", response.error);
-                setPromotions([]);
-            }
-        };
+    // Fetch policies, resignations, and terminations on mount
+    // (promotions are auto-fetched by usePromotionsREST hook)
+    useEffect(() => {
+        console.log('[EmployeeDetails] Fetching initial data via REST API');
+        fetchPolicies();
+        fetchResignations({ type: 'alltime' });
+        fetchTerminations({ type: 'alltime' });
+    }, [fetchPolicies, fetchResignations, fetchTerminations]);
 
-        const handlePromotionCreateResponse = async (response: any) => {
-            if (!isMounted) return;
+    // Listen for promotion broadcasts to refresh employee data
+    useEffect(() => {
+        if (!socket) return;
 
-            if (response.done) {
-                socket.emit("promotion:getAll", {});
+        const handlePromotionChanged = async () => {
+            const latestEmployeeId = employeeIdRef.current;
+            const restApi = employeesRESTRef.current;
 
-                const latestEmployeeId = employeeIdRef.current;
-                const restApi = employeesRESTRef.current;
-
-                if (latestEmployeeId && restApi) {
-                    const updatedEmployee = await restApi.getEmployeeDetails(latestEmployeeId);
-                    if (updatedEmployee && isMounted) {
-                        setEmployee(updatedEmployee as any);
-                    }
+            if (latestEmployeeId && restApi) {
+                const updatedEmployee = await restApi.getEmployeeDetails(latestEmployeeId);
+                if (updatedEmployee) {
+                    setEmployee(updatedEmployee as any);
                 }
             }
         };
 
-        const handlePromotionUpdateResponse = async (response: any) => {
-            if (!isMounted) return;
-
-            if (response.done) {
-                socket.emit("promotion:getAll", {});
-
-                const latestEmployeeId = employeeIdRef.current;
-                const restApi = employeesRESTRef.current;
-
-                if (latestEmployeeId && restApi) {
-                    const updatedEmployee = await restApi.getEmployeeDetails(latestEmployeeId);
-                    if (updatedEmployee && isMounted) {
-                        setEmployee(updatedEmployee as any);
-                    }
-                }
-            }
-        };
-
-        const handleGetResignationsResponse = (response: any) => {
-            console.log('[EmployeeDetails] Received resignations response:', response);
-            if (!isMounted) return;
-
-            if (response.done) {
-                console.log('[EmployeeDetails] Setting resignations, count:', response.data?.length || 0);
-                console.log('[EmployeeDetails] Resignation data:', response.data);
-                setResignations(response.data || []);
-            } else {
-                console.error("[EmployeeDetails] Failed to fetch resignations:", response.error);
-                setResignations([]);
-            }
-        };
-
-        const handleGetTerminationsResponse = (response: any) => {
-            console.log('[EmployeeDetails] Received terminations response:', response);
-            if (!isMounted) return;
-
-            if (response.done) {
-                console.log('[EmployeeDetails] Setting terminations, count:', response.data?.length || 0);
-                console.log('[EmployeeDetails] Termination data:', response.data);
-                setTerminations(response.data || []);
-            } else {
-                console.error("[EmployeeDetails] Failed to fetch terminations:", response.error);
-                setTerminations([]);
-            }
-        };
-
-        socket.on("hr/policy/get-response", handleGetPolicyResponse);
-        socket.on("promotion:getAll:response", handleGetPromotionsResponse);
-        socket.on("promotion:create:response", handlePromotionCreateResponse);
-        socket.on("promotion:update:response", handlePromotionUpdateResponse);
-        socket.on("hr/resignation/resignationlist-response", handleGetResignationsResponse);
-        socket.on("hr/termination/terminationlist-response", handleGetTerminationsResponse);
+        socket.on("promotion:created", handlePromotionChanged);
+        socket.on("promotion:updated", handlePromotionChanged);
 
         return () => {
-            isMounted = false;
-            socket.off("hr/policy/get-response", handleGetPolicyResponse);
-            socket.off("promotion:getAll:response", handleGetPromotionsResponse);
-            socket.off("promotion:create:response", handlePromotionCreateResponse);
-            socket.off("promotion:update:response", handlePromotionUpdateResponse);
-            socket.off("hr/resignation/resignationlist-response", handleGetResignationsResponse);
-            socket.off("hr/termination/terminationlist-response", handleGetTerminationsResponse);
-            socketInitRef.current = false;
+            socket.off("promotion:created", handlePromotionChanged);
+            socket.off("promotion:updated", handlePromotionChanged);
         };
     }, [socket]);
 
@@ -1778,6 +1630,12 @@ const EmployeeDetails = () => {
         return '—';
     };
 
+    // Capitalize first letter of a string
+    const capitalizeFirstLetter = (str: string | undefined | null): string => {
+        if (!str || typeof str !== 'string') return '';
+        return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+    };
+
     // Get employee's most recent promotion (if any)
     const getEmployeePromotion = (): Promotion | null => {
         if (!employee || !promotions.length) {
@@ -1794,15 +1652,15 @@ const EmployeeDetails = () => {
             totalPromotions: promotions.length,
             promotionEmployeeIds: promotions.map(p => ({
                 promotionId: p._id,
-                employeeId: p.employee?.id,
-                employeeName: p.employee?.name
+                employeeId: p.employeeId,
+                employeeName: p.employeeName
             }))
         });
 
         // Filter promotions for this specific employee
         // Check multiple possible ID fields to ensure we find the promotion
         const employeePromotions = promotions.filter(promo => {
-            const promoEmployeeId = promo.employee?.id;
+            const promoEmployeeId = promo.employeeId;
             const matches = promoEmployeeId === employee._id ||
                            promoEmployeeId === employee.employeeId ||
                            promoEmployeeId === employeeId; // Also check the route param
@@ -2028,6 +1886,12 @@ const EmployeeDetails = () => {
         return parsed ? parsed.format(DATE_FORMAT) : "";
     }
 
+    const handleInlineEmployeeUpdate = (updatedEmployee: any) => {
+        setEmployee(updatedEmployee as any);
+        setEditingEmployee(null);
+        toast.success("Employee updated successfully!");
+    };
+
     return (
         <>
             {/* Page Wrapper */}
@@ -2086,11 +1950,11 @@ const EmployeeDetails = () => {
                                             </h5>
                                             <span className="badge badge-soft-dark fw-medium me-2">
                                                 <i className="ti ti-point-filled me-1" />
-                                                {employee?.role || 'employee'}
+                                                {employee?.account?.role || employee?.role || 'User'}
                                             </span>
                                             <span className="badge badge-soft-secondary fw-medium">
                                                 <i className="ti ti-point-filled me-1" />
-                                                Years of Experience: {employee?.yearsOfExperience || '-'}
+                                                Designation: {getDesignationLabel(employee?.designation)}
                                             </span>
                                         </div>
                                         <div>
@@ -2144,6 +2008,15 @@ const EmployeeDetails = () => {
                                                 </span>
                                                 <p className="text-dark">{getDesignationLabel(employee?.designation)}</p>
                                             </div>
+                                            {employee?.reportingManagerName && (
+                                                <div className="d-flex align-items-center justify-content-between mt-2">
+                                                    <span className="d-inline-flex align-items-center">
+                                                        <i className="ti ti-user-check me-2" />
+                                                        Reporting Manager
+                                                    </span>
+                                                    <p className="text-dark">{employee?.reportingManagerName || '-'}</p>
+                                                </div>
+                                            )}
                                             {(employee?.batchId || employee?.batchName || employee?.shiftId || employee?.shiftName) && (
                                                 <div className="d-flex align-items-center justify-content-between mt-2">
                                                     <span className="d-inline-flex align-items-center">
@@ -2212,7 +2085,7 @@ const EmployeeDetails = () => {
                                                         data-bs-target="#view_employee_promotion"
                                                         title="Click to view promotion details"
                                                     >
-                                                        {employeePromotion.promotionTo.designation.name}
+                                                        {employeePromotion.promotionTo.designation}
                                                         <i className="ti ti-external-link ms-1 fs-12" />
                                                     </Link>
                                                 </div>
@@ -2261,8 +2134,11 @@ const EmployeeDetails = () => {
                                                         <Link
                                                             to="#"
                                                             className="btn btn-dark w-100"
-                                                            data-bs-toggle="modal" data-inert={true}
-                                                            data-bs-target="#edit_employee"
+                                                            onClick={(e) => {
+                                                                e.preventDefault();
+                                                                // Set editing employee - modal will open automatically
+                                                                setEditingEmployee(employee);
+                                                            }}
                                                         >
                                                             <i className="ti ti-edit me-1" />
                                                             Edit Info
@@ -2286,8 +2162,11 @@ const EmployeeDetails = () => {
                                             <Link
                                                 to="#"
                                                 className="btn btn-icon btn-sm"
-                                                data-bs-toggle="modal" data-inert={true}
-                                                data-bs-target="#edit_employee"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    // Set editing employee - modal will open automatically
+                                                    setEditingEmployee(employee);
+                                                }}
                                             >
                                                 <i className="ti ti-edit" />
                                             </Link>
@@ -2297,7 +2176,7 @@ const EmployeeDetails = () => {
                                                 <i className="ti ti-phone me-2" />
                                                 Phone
                                             </span>
-                                            <p className="text-dark">{employee?.contact?.phone || '-'}</p>
+                                            <p className="text-dark">{employee?.phone || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
@@ -2308,7 +2187,7 @@ const EmployeeDetails = () => {
                                                 to="#"
                                                 className="text-info d-inline-flex align-items-center"
                                             >
-                                                {employee?.contact?.email || '-'}
+                                                {employee?.email || '-'}
                                                 <i className="ti ti-copy text-dark ms-2" />
                                             </Link>
                                         </div>
@@ -2317,14 +2196,14 @@ const EmployeeDetails = () => {
                                                 <i className="ti ti-gender-male me-2" />
                                                 Gender
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.gender || '-'}</p>
+                                            <p className="text-dark text-end">{employee?.gender || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-cake me-2" />
                                                 Birdthday
                                             </span>
-                                            <p className="text-dark text-end">{formatDate(employee?.personal?.birthday) || '-'}</p>
+                                            <p className="text-dark text-end">{formatDate(employee?.dateOfBirth) || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between">
                                             <span className="d-inline-flex align-items-center">
@@ -2332,7 +2211,7 @@ const EmployeeDetails = () => {
                                                 Address
                                             </span>
                                             <p className="text-dark text-end">
-                                                {employee?.personal?.address?.street} {employee?.personal?.address?.city || '-'} <br /> {employee?.personal?.address?.state || '-'} {employee?.personal?.address?.country || '-'} {employee?.personal?.address?.postalCode || '-'}
+                                                {employee?.address?.street} {employee?.address?.city || '-'} <br /> {employee?.address?.state || '-'} {employee?.address?.country || '-'} {employee?.address?.postalCode || '-'}
                                             </p>
                                         </div>
                                     </div>
@@ -2353,42 +2232,42 @@ const EmployeeDetails = () => {
                                                 <i className="ti ti-e-passport me-2" />
                                                 Passport No
                                             </span>
-                                            <p className="text-dark">{employee?.personal?.passport?.number || '-'}</p>
+                                            <p className="text-dark">{employee?.passport?.number || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-calendar-x me-2" />
                                                 Passport Exp Date
                                             </span>
-                                            <p className="text-dark text-end">{formatDate(employee?.personal?.passport?.expiryDate) || '-'}</p>
+                                            <p className="text-dark text-end">{formatDate(employee?.passport?.expiryDate) || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-gender-male me-2" />
                                                 Nationality
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.passport?.country || '-'}</p>
+                                            <p className="text-dark text-end">{employee?.passport?.country || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-bookmark-plus me-2" />
                                                 Religion
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.religion || '-'}</p>
+                                            <p className="text-dark text-end">{(employee as any)?.religion || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-hotel-service me-2" />
                                                 Marital status
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.maritalStatus || '-'}</p>
+                                            <p className="text-dark text-end">{(employee as any)?.maritalStatus || '-'}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
                                                 <i className="ti ti-briefcase-2 me-2" />
                                                 Employment of spouse
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.employmentOfSpouse || "-"}</p>
+                                            <p className="text-dark text-end">{(employee as any)?.employmentOfSpouse || "-"}</p>
                                         </div>
                                         <div className="d-flex align-items-center justify-content-between mb-2">
                                             <span className="d-inline-flex align-items-center">
@@ -2396,7 +2275,7 @@ const EmployeeDetails = () => {
                                                 No. of children
                                                 {employee?.bank?.bankName || '-'}
                                             </span>
-                                            <p className="text-dark text-end">{employee?.personal?.noOfChildren || '-'}</p>
+                                            <p className="text-dark text-end">{(employee as any)?.noOfChildren || '-'}</p>
                                         </div>
 
                                         {/* Emergency Contact Number Section - Now inside Personal Information */}
@@ -2511,7 +2390,7 @@ const EmployeeDetails = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                             {/* {bank details shown} */}
+                                             {/* bank details shown */}
                                             <div className="accordion-item">
                                                 <div className="accordion-header" id="headingTwo">
                                                     <div className="accordion-button">
@@ -2576,8 +2455,8 @@ const EmployeeDetails = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            {/* {end bank details} */}
-                                            {/* {Family details show} */}
+                                            {/* end bank details */}
+                                            {/* Family details show */}
                                             <div className="accordion-item">
                                                 <div className="accordion-header" id="headingThree">
                                                     <div className="accordion-button">
@@ -2675,10 +2554,10 @@ const EmployeeDetails = () => {
                                                     </div>
                                                 </div>
                                             </div>
-                                            {/* {end Family details show} */}
+                                            {/* end Family details show */}
 
                                             <div className="row">
-                                                 {/* {Education Details shown} */}
+                                                 {/* Education Details shown */}
                                                 <div className="col-md-6">
                                                     <div className="accordion-item">
                                                         <div className="row">
@@ -2792,8 +2671,8 @@ const EmployeeDetails = () => {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                {/* {End Education Details} */}
-                                                {/* {Experience shown} */}
+                                                {/* End Education Details */}
+                                                {/* Experience shown */}
                                                 <div className="col-md-6">
                                                     <div className="accordion-item">
                                                         <div className="row">
@@ -2909,7 +2788,7 @@ const EmployeeDetails = () => {
                                                         </div>
                                                     </div>
                                                 </div>
-                                                {/* {End Experience Details} */}
+                                                {/* End Experience Details */}
                                             </div>
                                             <div className="card">
                                                 <div className="card-body">
@@ -3289,659 +3168,35 @@ const EmployeeDetails = () => {
             </div>
             <ToastContainer />
             {/* /Page Wrapper */}
-            {/* Edit Employee */}
-                <div className="modal fade" id="edit_employee">
-                    <div className="modal-dialog modal-dialog-centered modal-lg">
-                        <div className="modal-content">
-                            <div className="modal-header">
-                                <div className="d-flex align-items-center">
-                                    <h4 className="modal-title me-2">Edit Employee</h4>
-                                    <span>Employee ID : {editFormData?.employeeId || employee?.employeeId}</span>
-                                </div>
-                                <button
-                                    type="button"
-                                    className="btn-close custom-btn-close"
-                                    data-bs-dismiss="modal"
-                                    aria-label="Close"
-                                >
-                                    <i className="ti ti-x" />
-                                </button>
-                            </div>
-                            {/* Hidden button for programmatic modal close */}
+            {/* Edit Employee Modal */}
+            <EditEmployeeModal
+                employee={editingEmployee}
+                modalId="edit_employee_details"
+                onUpdate={(updatedEmployee) => {
+                    setEmployee(updatedEmployee as any);
+                    setEditingEmployee(null);
+                    toast.success("Employee updated successfully!");
+                }}
+                getModalContainer={getModalContainer}
+                showLifecycleWarning={true}
+            />
+            <div className="modal fade" id="edit_about">
+                <div className="modal-dialog modal-dialog-centered modal-lg">
+                    <div className="modal-content">
+                        <div className="modal-header">
+                            <h4 className="modal-title">Edit Personal Info</h4>
                             <button
                                 type="button"
-                                ref={editEmployeeModalRef}
+                                className="btn-close custom-btn-close"
                                 data-bs-dismiss="modal"
-                                style={{ display: "none" }}
-                            />
-                            <form onSubmit={handleEditSubmit}>
-                                <div className="contact-grids-tab">
-                                    <ul className="nav nav-underline" id="myTab2" role="tablist">
-                                        <li className="nav-item" role="presentation">
-                                            <button
-                                                className="nav-link active"
-                                                id="info-tab3"
-                                                data-bs-toggle="tab"
-                                                data-bs-target="#basic-info3"
-                                                type="button"
-                                                role="tab"
-                                                aria-selected="true"
-                                            >
-                                                Basic Information
-                                            </button>
-                                        </li>
-                                        <li className="nav-item" role="presentation">
-                                            <button
-                                                className="nav-link"
-                                                id="address-tab3"
-                                                data-bs-toggle="tab"
-                                                data-bs-target="#address3"
-                                                type="button"
-                                                role="tab"
-                                                aria-selected="false"
-                                            >
-                                                Permissions
-                                            </button>
-                                        </li>
-                                    </ul>
-                                </div>
-                                <div className="tab-content" id="myTabContent2">
-                                    <div
-                                        className="tab-pane fade show active"
-                                        id="basic-info3"
-                                        role="tabpanel"
-                                        aria-labelledby="info-tab3"
-                                        tabIndex={0}
-                                    >
-                                        <div className="modal-body pb-0">
-                                            <div className="row">
-
-                                                <div className="col-md-12">
-                                                    <div className="d-flex align-items-center flex-wrap row-gap-3 bg-light w-100 rounded p-3 mb-4">
-                                                        {editFormData.avatarUrl || editFormData.profileImage ? (
-                                                            <img
-                                                                src={editFormData.avatarUrl || editFormData.profileImage}
-                                                                alt="Profile"
-                                                                className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
-                                                            />
-                                                        ) : employee?.avatarUrl || employee?.profileImage ? (
-                                                            <img
-                                                                src={employee.avatarUrl || employee.profileImage}
-                                                                alt="Profile"
-                                                                className="avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0"
-                                                            />
-                                                        ) : (
-                                                            <div className="d-flex align-items-center justify-content-center avatar avatar-xxl rounded-circle border border-dashed me-2 flex-shrink-0 text-dark frames">
-                                                                <i className="ti ti-photo text-gray-2 fs-16" />
-                                                            </div>
-                                                        )}
-                                                        <div className="profile-upload">
-                                                            <div className="mb-2">
-                                                                <h6 className="mb-1">Edit Profile Image</h6>
-                                                                <p className="fs-12 text-muted mb-0">JPG, JPEG, PNG • Max 2MB</p>
-                                                            </div>
-                                                            <div className="profile-uploader d-flex align-items-center">
-                                                                <div className="drag-upload-btn btn btn-sm btn-primary me-2">
-                                                                    {imageUpload ? "Uploading..." : "Upload"}
-                                                                    <input
-                                                                        type="file"
-                                                                        className="form-control image-sign"
-                                                                        accept=".png,.jpeg,.jpg"
-                                                                        ref={fileInputRef}
-                                                                        onChange={handleImageUpload}
-                                                                        disabled={imageUpload}
-                                                                        style={{
-                                                                            cursor: imageUpload ? "not-allowed" : "pointer",
-                                                                            opacity: 0,
-                                                                            position: "absolute",
-                                                                            top: 0,
-                                                                            left: 0,
-                                                                            width: "100%",
-                                                                            height: "100%",
-                                                                        }}
-                                                                    />
-                                                                </div>
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-light btn-sm"
-                                                                    onClick={removeLogo}
-                                                                    disabled={imageUpload}
-                                                                >
-                                                                    Remove
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            First Name <span className="text-danger">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            name="firstName"
-                                                            value={editFormData.firstName || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">Last Name</label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            name="lastName"
-                                                            value={editFormData.lastName || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Employee ID <span className="text-danger">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            name="employeeId"
-                                                            value={editFormData.employeeId || ""}
-                                                            readOnly
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Role <span className="text-danger">*</span>
-                                                        </label>
-                                                        <CommonSelect
-                                                            className="select"
-                                                            options={roleOptions}
-                                                            defaultValue={roleOptions.find(opt => opt.value === editFormData.account?.role)}
-                                                            onChange={(option: any) => {
-                                                                if (option) {
-                                                                    setEditFormData((prev) => ({
-                                                                        ...prev,
-                                                                        account: {
-                                                                            ...prev.account,
-                                                                            role: option.value,
-                                                                        },
-                                                                    }));
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Date of Joining <span className="text-danger">*</span>
-                                                        </label>
-                                                        <div className="input-icon-end position-relative">
-                                                            <DatePicker
-                                                                className="form-control datetimepicker"
-                                                                format="DD-MM-YYYY"
-                                                                getPopupContainer={getModalContainer}
-                                                                placeholder="DD-MM-YYYY"
-                                                                value={editFormData.dateOfJoining ? toDayjsDate(editFormData.dateOfJoining) : null}
-                                                                onChange={(date) => setEditFormData(prev => ({
-                                                                    ...prev,
-                                                                    dateOfJoining: date ? date.format(DATE_FORMAT) : null
-                                                                }))}
-                                                            />
-                                                            <span className="input-icon-addon">
-                                                                <i className="ti ti-calendar text-gray-7" />
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Username <span className="text-danger">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            name="account.userName"
-                                                            value={editFormData.account?.userName || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Email <span className="text-danger">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="email"
-                                                            className="form-control"
-                                                            name="contact.email"
-                                                            value={editFormData.contact?.email || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Gender <span className="text-danger">*</span>
-                                                        </label>
-                                                        <select
-                                                            className="form-control"
-                                                            name="personal.gender"
-                                                            value={editFormData.personal?.gender || ""}
-                                                            onChange={handleEditFormChange}
-                                                        >
-                                                            <option value="">Select Gender</option>
-                                                            <option value="male">Male</option>
-                                                            <option value="female">Female</option>
-                                                            <option value="other">Other</option>
-                                                        </select>
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Birthday <span className="text-danger">*</span>
-                                                        </label>
-                                                        <div className="input-icon-end position-relative">
-                                                            <DatePicker
-                                                                className="form-control datetimepicker"
-                                                                format={{
-                                                                    format: "DD-MM-YYYY",
-                                                                    type: "mask",
-                                                                }}
-                                                                getPopupContainer={getModalContainer}
-                                                                placeholder="DD-MM-YYYY"
-                                                                value={editFormData.personal?.birthday ? toDayjsDate(editFormData.personal.birthday) : null}
-                                                                disabledDate={(current) =>
-                                                                    current ? current.endOf("day").isAfter(dayjs()) : false
-                                                                }
-                                                                onChange={(_date, dateString) => setEditFormData(prev => ({
-                                                                    ...prev,
-                                                                    personal: {
-                                                                        ...prev.personal,
-                                                                        birthday: (dateString as string) || null
-                                                                    }
-                                                                }))}
-                                                            />
-                                                            <span className="input-icon-addon">
-                                                                <i className="ti ti-calendar text-gray-7" />
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-12">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">Address</label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            placeholder="Street"
-                                                            name="personal.address.street"
-                                                            value={editFormData.personal?.address?.street || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                        <div className="row mt-3">
-                                                            <div className="col-md-6">
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    placeholder="City"
-                                                                    name="personal.address.city"
-                                                                    value={editFormData.personal?.address?.city || ""}
-                                                                    onChange={handleEditFormChange}
-                                                                />
-                                                            </div>
-                                                            <div className="col-md-6">
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    placeholder="State"
-                                                                    name="personal.address.state"
-                                                                    value={editFormData.personal?.address?.state || ""}
-                                                                    onChange={handleEditFormChange}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                        <div className="row mt-3">
-                                                            <div className="col-md-6">
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    placeholder="Postal Code"
-                                                                    name="personal.address.postalCode"
-                                                                    value={editFormData.personal?.address?.postalCode || ""}
-                                                                    onChange={handleEditFormChange}
-                                                                />
-                                                            </div>
-                                                            <div className="col-md-6">
-                                                                <input
-                                                                    type="text"
-                                                                    className="form-control"
-                                                                    placeholder="Country"
-                                                                    name="personal.address.country"
-                                                                    value={editFormData.personal?.address?.country || ""}
-                                                                    onChange={handleEditFormChange}
-                                                                />
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Phone Number <span className="text-danger">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            name="contact.phone"
-                                                            value={editFormData.contact?.phone || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Company <span className="text-danger">*</span>
-                                                        </label>
-                                                        <input
-                                                            type="text"
-                                                            className="form-control"
-                                                            name="companyName"
-                                                            value={editFormData.companyName || ""}
-                                                            onChange={handleEditFormChange}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">Department</label>
-                                                        <CommonSelect
-                                                            className='select'
-                                                            options={department}
-                                                            value={department.find(opt => opt.value === editFormData.departmentId) || department[0]}
-                                                            onChange={option => {
-                                                                if (option) {
-                                                                    setEditFormData(prev => ({
-                                                                        ...prev,
-                                                                        departmentId: option.value,
-                                                                        designationId: "" // Clear designation when department changes
-                                                                    }));
-                                                                    // Reset designation dropdown to default
-                                                                    setDesignation([{ value: "", label: "Select Designation" }]);
-                                                                    if (option.value) {
-                                                                        // Fetch designations for the selected department using REST API
-                                                                        fetchDesignations({ departmentId: option.value });
-                                                                    }
-                                                                } else {
-                                                                    // Clear both department and designation when department is cleared
-                                                                    setEditFormData(prev => ({
-                                                                        ...prev,
-                                                                        departmentId: "",
-                                                                        designationId: ""
-                                                                    }));
-                                                                    setDesignation([{ value: "", label: "Select Designation" }]);
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">Designation</label>
-                                                        <CommonSelect
-                                                            className='select'
-                                                            options={designation}
-                                                            value={designation.find(opt => opt.value === editFormData.designationId) || designation[0]}
-                                                            onChange={option => {
-                                                                if (option) {
-                                                                    setEditFormData(prev => ({
-                                                                        ...prev,
-                                                                        designationId: option.value
-                                                                    }));
-                                                                }
-                                                            }}
-                                                        />
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-6">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            Status <span className="text-danger">*</span>
-                                                        </label>
-                                                        <div>
-                                                            <div className="form-check form-switch">
-                                                                <input
-                                                                    className="form-check-input"
-                                                                    type="checkbox"
-                                                                    role="switch"
-                                                                    id="editStatusSwitch"
-                                                                    checked={editFormData.status === "Active"}
-                                                                    disabled={
-                                                                        editFormData.status?.toLowerCase() !== "active" &&
-                                                                        editFormData.status?.toLowerCase() !== "inactive"
-                                                                    }
-                                                                    onChange={(e) => {
-                                                                        const currentStatus = editFormData.status?.toLowerCase();
-                                                                        // Only allow editing if status is Active or Inactive
-                                                                        if (currentStatus !== "active" && currentStatus !== "inactive") {
-                                                                            return;
-                                                                        }
-                                                                        setEditFormData(prev => ({
-                                                                            ...prev,
-                                                                            status: e.target.checked ? "Active" : "Inactive"
-                                                                        }));
-                                                                    }}
-                                                                />
-                                                                <label
-                                                                    className="form-check-label"
-                                                                    htmlFor="editStatusSwitch"
-                                                                    style={{
-                                                                        opacity: (
-                                                                            editFormData.status?.toLowerCase() !== "active" &&
-                                                                            editFormData.status?.toLowerCase() !== "inactive"
-                                                                        ) ? 0.6 : 1
-                                                                    }}
-                                                                >
-                                                                    <span
-                                                                        className={`badge ${editFormData.status === "Active"
-                                                                            ? "badge-success"
-                                                                            : "badge-danger"
-                                                                            } d-inline-flex align-items-center`}
-                                                                    >
-                                                                        <i className="ti ti-point-filled me-1" />
-                                                                        {editFormData.status || "Active"}
-                                                                    </span>
-                                                                </label>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="col-md-12">
-                                                    <div className="mb-3">
-                                                        <label className="form-label">
-                                                            About <span className="text-danger">*</span>
-                                                        </label>
-                                                        <textarea
-                                                            className="form-control"
-                                                            rows={4}
-                                                            name="about"
-                                                            value={typeof editFormData.about === 'string' ? editFormData.about : ""}
-                                                            onChange={handleEditFormChange}
-                                                            placeholder="Write something about the employee..."
-                                                        />
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="modal-footer">
-                                            <button
-                                                type="button"
-                                                className="btn btn-outline-light border me-2"
-                                                data-bs-dismiss="modal"
-                                            >
-                                                Cancel
-                                            </button>
-                                            <button
-                                                type="button"
-                                                className="btn btn-primary"
-                                                disabled={loading}
-                                                onClick={handleNext}
-                                            >
-                                                {loading ? "Saving..." : "Save & Next"}
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    <div
-                                        className="tab-pane fade"
-                                        id="address3"
-                                        role="tabpanel"
-                                        aria-labelledby="address-tab3"
-                                        tabIndex={0}
-                                    >
-                                        <div className="modal-body pb-0">
-                                            <div className="card">
-                                                <div className="card-body">
-                                                    <div className="d-flex align-items-center justify-content-between pb-3 border-bottom">
-                                                        <h6 className="mb-0">Enable Modules</h6>
-                                                        <div className="d-flex align-items-center">
-                                                            <div className="form-check form-switch me-3">
-                                                                <label className="form-check-label">
-                                                                    <input
-                                                                        className="form-check-input"
-                                                                        type="checkbox"
-                                                                        role="switch"
-                                                                        checked={Object.values(permissions.enabledModules).every(Boolean)}
-                                                                        onChange={(e) => toggleAllModules(e.target.checked)}
-                                                                    />
-                                                                    <span className="text-dark">Enable All</span>
-                                                                </label>
-                                                            </div>
-                                                            <div className="form-check form-switch">
-                                                                <label className="form-check-label">
-                                                                    <input
-                                                                        className="form-check-input"
-                                                                        type="checkbox"
-                                                                        role="switch"
-                                                                        checked={allPermissionsSelected()}
-                                                                        onChange={(e) => toggleGlobalSelectAll(e.target.checked)}
-                                                                    />
-                                                                    <span className="text-dark">Select All</span>
-                                                                </label>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    <div className="table-responsive border rounded mt-3">
-                                                        <table className="table">
-                                                            <tbody>
-                                                                {MODULES.map((module) => (
-                                                                    <tr key={module}>
-                                                                        <td>
-                                                                            <div className="form-check form-switch me-2">
-                                                                                <label className="form-check-label mt-0">
-                                                                                    <input
-                                                                                        className="form-check-input me-2"
-                                                                                        type="checkbox"
-                                                                                        role="switch"
-                                                                                        checked={permissions.enabledModules[module]}
-                                                                                        onChange={() => toggleModule(module)}
-                                                                                    />
-                                                                                    {module.charAt(0).toUpperCase() + module.slice(1)}
-                                                                                </label>
-                                                                            </div>
-                                                                        </td>
-
-                                                                        {ACTIONS.map((action) => (
-                                                                            <td key={action}>
-                                                                                <div className="form-check d-flex align-items-center">
-                                                                                    <label className="form-check-label mt-0">
-                                                                                        <input
-                                                                                            className="form-check-input"
-                                                                                            type="checkbox"
-                                                                                            checked={permissions.permissions[module][action]}
-                                                                                            onChange={(e) =>
-                                                                                                handlePermissionChange(
-                                                                                                    module,
-                                                                                                    action,
-                                                                                                    e.target.checked
-                                                                                                )
-                                                                                            }
-                                                                                            disabled={!permissions.enabledModules[module]}
-                                                                                        />
-                                                                                        {action.charAt(0).toUpperCase() + action.slice(1)}
-                                                                                    </label>
-                                                                                </div>
-                                                                            </td>
-                                                                        ))}
-                                                                    </tr>
-                                                                ))}
-                                                            </tbody>
-                                                        </table>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            <div className="modal-footer">
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-outline-light border me-2"
-                                                    data-bs-dismiss="modal"
-                                                >
-                                                    Cancel
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    className="btn btn-primary"
-                                                    onClick={(e) => {
-                                                        handlePermissionUpdateSubmit(e);
-                                                        // Close modal after submission
-                                                        setTimeout(() => {
-                                                            const closeButton = document.querySelector('#edit_employee [data-bs-dismiss="modal"]') as HTMLButtonElement;
-                                                            if (closeButton) {
-                                                                closeButton.click();
-                                                            }
-                                                        }, 100);
-                                                    }}
-                                                    disabled={loading}
-                                                >
-                                                    {loading ? "Saving..." : "Save"}
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </form>
+                                aria-label="Close"
+                                onClick={resetAboutForm}
+                            >
+                                <i className="ti ti-x" />
+                            </button>
                         </div>
-                    </div>
-                </div>
-            {/* /Edit Employee */}
-            {/* Edit about */}
-                <div className="modal fade" id="edit_about">
-                    <div className="modal-dialog modal-dialog-centered modal-lg">
-                        <div className="modal-content">
-                            <div className="modal-header">
-                                <h4 className="modal-title">Edit Personal Info</h4>
-                                <button
-                                    type="button"
-                                    className="btn-close custom-btn-close"
-                                    data-bs-dismiss="modal"
-                                    aria-label="Close"
-                                    onClick={resetAboutForm}
-                                >
-                                    <i className="ti ti-x" />
-                                </button>
-                            </div>
-                            <form onSubmit={handleAboutSubmit}>
-                                <div className="tab-content" id="myTabContent2">
+                        <form onSubmit={handleAboutSubmit}>
+                            <div className="tab-content" id="myTabContent2">
                                     <div
                                         className="tab-pane fade show active"
                                         id="basic-info3"

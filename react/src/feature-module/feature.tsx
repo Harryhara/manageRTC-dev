@@ -52,6 +52,7 @@ const Feature = () => {
     }
     window.scrollTo(0, 0);
   }, [location.pathname,dataLoader]);
+
   const Preloader = () => {
     return (
       <div id="global-loader">

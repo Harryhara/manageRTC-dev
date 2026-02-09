@@ -189,6 +189,7 @@ import Gallery from '../pages/gallery';
 import Pricing from '../pages/pricing';
 import PrivacyPolicy from '../pages/privacy-policy';
 import Profile from '../pages/profile';
+import AdminProfilePage from '../pages/admin-profile';
 import SearchResult from '../pages/search-result';
 import StarterPage from '../pages/starter';
 import TermsCondition from '../pages/terms-condition';
@@ -309,31 +310,31 @@ export const publicRoutes = [
     path: routes.adminDashboard,
     element: <AdminDashboard />,
     route: Route,
-    roles: ['admin'],
+    roles: ['admin', 'manager'],
   },
   {
     path: routes.employeeDashboard,
     element: <EmployeeDashboard />,
     route: Route,
-    roles: ['public'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'leads'],
   },
   {
     path: routes.leadsDashboard,
     element: <LeadsDasboard />,
     route: Route,
-    roles: ['lead'],
+    roles: ['admin', 'hr', 'manager', 'leads'],
   },
   {
     path: routes.dealsDashboard,
     element: <DealsDashboard />,
     route: Route,
-    roles: ['deal'],
+    roles: ['admin', 'hr', 'manager', 'leads'],
   },
   {
     path: routes.hrDashboard,
     element: <HRDashboard />,
     route: Route,
-    roles: ['hr'],
+    roles: ['hr', 'manager', 'leads'],
   },
   {
     path: routes.validate,
@@ -358,7 +359,7 @@ export const publicRoutes = [
   {
     path: routes.resignation,
     element: <Resignation />,
-    roles: ['hr'],
+    roles: ['hr', 'employee'],
   },
   {
     path: routes.promotion,
@@ -1451,6 +1452,11 @@ export const publicRoutes = [
     roles: ['public'],
   },
   {
+    path: routes.adminProfile,
+    element: <AdminProfilePage />,
+    roles: ['admin'],
+  },
+  {
     path: routes.gallery,
     element: <Gallery />,
     roles: ['public'],
@@ -1489,37 +1495,37 @@ export const publicRoutes = [
   {
     path: routes.assetList,
     element: <Assets />,
-    roles: ['public'],
+    roles: ['admin', 'superadmin'],
   },
   {
     path: routes.assetCategories,
     element: <AssetsCategory />,
-    roles: ['public'],
+    roles: ['admin', 'superadmin'],
   },
   {
     path: routes.knowledgebase,
     element: <Knowledgebase />,
-    roles: ['public'],
+    roles: ['admin', 'superadmin'],
   },
   {
     path: routes.activity,
     element: <Activity />,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'employee', 'superadmin'],
   },
   {
     path: routes.users,
     element: <Users />,
-    roles: ['public'],
+    roles: ['admin', 'superadmin'],
   },
   {
     path: routes.rolePermission,
     element: <RolesPermission />,
-    roles: ['public'],
+    roles: ['admin', 'superadmin'],
   },
   {
     path: routes.permissionpage,
     element: <Permission />,
-    roles: ['public'],
+    roles: ['admin', 'superadmin'],
   },
   {
     path: routes.invoiceDetails,
@@ -1569,55 +1575,55 @@ export const publicRoutes = [
     path: routes.jobgrid,
     element: <JobGrid />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.joblist,
     element: <JobList />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.candidatesGrid,
     element: <CandidateGrid />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.candidateslist,
     element: <CandidatesList />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.candidateskanban,
     element: <CandidateKanban />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.refferal,
     element: <RefferalList />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.clientgrid,
     element: <ClientList />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.clientlist,
     element: <ClientList />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: '/clients-details/:clientId',
     element: <ClientDetails />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.project,
@@ -1841,19 +1847,19 @@ export const publicRoutes = [
     path: routes.contactList,
     element: <ContactList />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.contactGrid,
     element: <ContactGrid />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.contactDetails,
     element: <ContactDetails />,
     route: Route,
-    roles: ['public'],
+    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.companiesGrid,

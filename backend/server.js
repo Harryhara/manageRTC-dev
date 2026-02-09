@@ -57,6 +57,7 @@ import userProfileRoutes from "./routes/api/user-profile.js";
 import clerkWebhookRoutes from "./routes/webhooks/clerk.routes.js";
 import scheduleRoutes from "./routes/api/schedule.js";
 import batchRoutes from "./routes/api/batches.js";
+import healthRoutes from "./routes/health.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -205,6 +206,9 @@ const initializeServer = async () => {
 
     // Clerk Webhooks
     app.use("/api/webhooks", clerkWebhookRoutes);
+
+    // Health Check Routes
+    app.use("/health", healthRoutes);
 
     // API Documentation (Swagger)
     app.use(
