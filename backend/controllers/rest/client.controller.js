@@ -24,6 +24,18 @@ import {
   sendCreated,
   sendSuccess,
 } from '../../utils/apiResponse.js';
+<<<<<<< main
+import { getTenantModel } from '../../utils/mongooseMultiTenant.js';
+
+/**
+ * Helper function to get tenant-specific Client model
+ */
+const getClientModel = (companyId) => {
+  if (!companyId) {
+    return Client;
+  }
+  return getTenantModel(companyId, 'Client', Client.schema);
+=======
 import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
 /**
@@ -45,6 +57,7 @@ const sendForbidden = (res, message = 'You do not have permission to access this
     success: false,
     error: { message }
   });
+>>>>>>> main
 };
 
 /**
@@ -109,19 +122,23 @@ export const getClientById = asyncHandler(async (req, res) => {
     throw buildValidationError('id', 'Invalid client ID format');
   }
 
+  console.log('[getClientById] Fetching client:', { id, companyId: user.companyId });
+
+  // Get tenant-specific Client model
+  const ClientModel = getClientModel(user.companyId);
+
   // Find client
-  const client = await Client.findOne({
+  const client = await ClientModel.findOne({
     _id: id,
-    isDeleted: false,
-  })
-    .populate('accountManager', 'firstName lastName fullName employeeId')
-    .populate('createdBy', 'firstName lastName fullName employeeId')
-    .populate('updatedBy', 'firstName lastName fullName employeeId');
+    $or: [{ isDeleted: false }, { isDeleted: null }, { isDeleted: { $exists: false } }],
+  });
 
   if (!client) {
+    console.log('[getClientById] Client not found:', id);
     throw buildNotFoundError('Client', id);
   }
 
+  console.log('[getClientById] Client found:', { id: client._id, name: client.name });
   return sendSuccess(res, client);
 });
 
@@ -201,10 +218,17 @@ export const updateClient = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
+<<<<<<< main
+  console.log('=== UPDATE CLIENT DEBUG ===');
+  console.log('Received req.body:', JSON.stringify(req.body, null, 2));
+  console.log('socialLinks in req.body:', req.body.socialLinks);
+  console.log('==========================');
+=======
   // Role check: Only admin, hr, manager, superadmin can update clients
   if (!ensureRole(user, ['admin', 'hr', 'manager', 'superadmin'])) {
     return sendForbidden(res, 'You do not have permission to update clients');
   }
+>>>>>>> main
 
   // Validate ObjectId
   if (!mongoose.Types.ObjectId.isValid(id)) {
@@ -259,6 +283,11 @@ export const updateClient = asyncHandler(async (req, res) => {
   const updatedClient = await collections.clients.findOne({
     _id: new mongoose.Types.ObjectId(id),
   });
+
+  console.log('=== UPDATED CLIENT FROM DB ===');
+  console.log('Updated client:', JSON.stringify(updatedClient, null, 2));
+  console.log('socialLinks in DB:', updatedClient.socialLinks);
+  console.log('==============================');
 
   return sendSuccess(res, updatedClient, 'Client updated successfully');
 });

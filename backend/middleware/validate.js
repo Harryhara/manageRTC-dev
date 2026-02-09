@@ -323,21 +323,23 @@ export const employeeSchemas = {
     notes: Joi.string().max(2000).allow('').optional(),
     // Permissions
     enabledModules: Joi.object().pattern(Joi.string(), Joi.boolean()).optional(),
-    permissions: Joi.object().pattern(
-      Joi.string(),
-      Joi.object({
-        read: Joi.boolean().optional(),
-        write: Joi.boolean().optional(),
-        create: Joi.boolean().optional(),
-        delete: Joi.boolean().optional(),
-        import: Joi.boolean().optional(),
-        export: Joi.boolean().optional(),
-      })
-    ).optional(),
+    permissions: Joi.object()
+      .pattern(
+        Joi.string(),
+        Joi.object({
+          read: Joi.boolean().optional(),
+          write: Joi.boolean().optional(),
+          create: Joi.boolean().optional(),
+          delete: Joi.boolean().optional(),
+          import: Joi.boolean().optional(),
+          export: Joi.boolean().optional(),
+        })
+      )
+      .optional(),
   })
     .min(1)
     .messages({
-      'object.min': 'At least one field must be provided for update'
+      'object.min': 'At least one field must be provided for update',
     })
     .unknown(true),
 
@@ -345,8 +347,8 @@ export const employeeSchemas = {
   reassignDelete: Joi.object({
     reassignTo: commonSchemas.objectId.required().messages({
       'any.required': 'Reassignment employee is required',
-      'string.pattern.name': 'Invalid reassignment employee ID format'
-    })
+      'string.pattern.name': 'Invalid reassignment employee ID format',
+    }),
   }).required(),
 
   // List employees (query params)
@@ -587,6 +589,13 @@ export const clientSchemas = {
     status: Joi.string().valid('Active', 'Inactive').optional(),
 
     projects: Joi.number().min(0).optional(),
+
+    socialLinks: Joi.object({
+      instagram: Joi.string().allow('').optional(),
+      facebook: Joi.string().allow('').optional(),
+      linkedin: Joi.string().allow('').optional(),
+      whatsapp: Joi.string().allow('').optional(),
+    }).optional(),
   }),
 
   update: Joi.object({
@@ -599,6 +608,12 @@ export const clientSchemas = {
     contractValue: Joi.number().min(0).optional(),
     status: Joi.string().valid('Active', 'Inactive').optional(),
     projects: Joi.number().min(0).optional(),
+    socialLinks: Joi.object({
+      instagram: Joi.string().allow('').optional(),
+      facebook: Joi.string().allow('').optional(),
+      linkedin: Joi.string().allow('').optional(),
+      whatsapp: Joi.string().allow('').optional(),
+    }).optional(),
   }).min(1),
 
   list: Joi.object({
@@ -714,15 +729,21 @@ export const shiftSchemas = {
       'string.max': 'Shift code cannot exceed 20 characters',
     }),
 
-    startTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).required().messages({
-      'string.pattern.base': 'Start time must be in HH:MM format (24-hour)',
-      'any.required': 'Start time is required',
-    }),
+    startTime: Joi.string()
+      .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+      .required()
+      .messages({
+        'string.pattern.base': 'Start time must be in HH:MM format (24-hour)',
+        'any.required': 'Start time is required',
+      }),
 
-    endTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).required().messages({
-      'string.pattern.base': 'End time must be in HH:MM format (24-hour)',
-      'any.required': 'End time is required',
-    }),
+    endTime: Joi.string()
+      .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+      .required()
+      .messages({
+        'string.pattern.base': 'End time must be in HH:MM format (24-hour)',
+        'any.required': 'End time is required',
+      }),
 
     duration: Joi.number().min(0.5).max(24).required().messages({
       'number.min': 'Duration must be at least 0.5 hours',
@@ -734,9 +755,12 @@ export const shiftSchemas = {
 
     description: Joi.string().max(500).allow('').optional(),
 
-    color: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).optional().messages({
-      'string.pattern.base': 'Color must be a valid hex code (e.g., #FF5733)',
-    }),
+    color: Joi.string()
+      .pattern(/^#[0-9A-Fa-f]{6}$/)
+      .optional()
+      .messages({
+        'string.pattern.base': 'Color must be a valid hex code (e.g., #FF5733)',
+      }),
 
     isActive: Joi.boolean().default(true),
 
@@ -777,17 +801,34 @@ export const shiftSchemas = {
     // Flexible hours
     flexibleHours: Joi.object({
       enabled: Joi.boolean().default(false),
-      windowStart: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
-      windowEnd: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      windowStart: Joi.string()
+        .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+        .optional(),
+      windowEnd: Joi.string()
+        .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+        .optional(),
       minHours: Joi.number().min(1).max(12).default(8).optional(),
     }).optional(),
 
     // Working days
-    workingDays: Joi.array().items(
-      Joi.string().valid('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
-    ).min(1).default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']).optional().messages({
-      'array.min': 'At least one working day is required',
-    }),
+    workingDays: Joi.array()
+      .items(
+        Joi.string().valid(
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday'
+        )
+      )
+      .min(1)
+      .default(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'])
+      .optional()
+      .messages({
+        'array.min': 'At least one working day is required',
+      }),
 
     // Shift type
     shiftType: Joi.string()
@@ -817,7 +858,9 @@ export const shiftSchemas = {
     // Validate flexible hours window if enabled
     if (value.flexibleHours?.enabled) {
       if (value.flexibleHours.windowStart && value.flexibleHours.windowEnd) {
-        const [flexStartHour, flexStartMin] = value.flexibleHours.windowStart.split(':').map(Number);
+        const [flexStartHour, flexStartMin] = value.flexibleHours.windowStart
+          .split(':')
+          .map(Number);
         const [flexEndHour, flexEndMin] = value.flexibleHours.windowEnd.split(':').map(Number);
         const flexStartMinutes = flexStartHour * 60 + flexStartMin;
         const flexEndMinutes = flexEndHour * 60 + flexEndMin;
@@ -836,12 +879,18 @@ export const shiftSchemas = {
   update: Joi.object({
     name: Joi.string().min(2).max(100).trim().optional(),
     code: Joi.string().min(1).max(20).trim().uppercase().optional(),
-    startTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
-    endTime: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+    startTime: Joi.string()
+      .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+      .optional(),
+    endTime: Joi.string()
+      .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+      .optional(),
     duration: Joi.number().min(0.5).max(24).optional(),
     timezone: Joi.string().optional(),
     description: Joi.string().max(500).allow('').optional(),
-    color: Joi.string().pattern(/^#[0-9A-Fa-f]{6}$/).optional(),
+    color: Joi.string()
+      .pattern(/^#[0-9A-Fa-f]{6}$/)
+      .optional(),
     isActive: Joi.boolean().optional(),
     isDefault: Joi.boolean().optional(),
     gracePeriod: Joi.number().integer().min(0).max(120).optional(),
@@ -859,20 +908,37 @@ export const shiftSchemas = {
     }).optional(),
     flexibleHours: Joi.object({
       enabled: Joi.boolean().optional(),
-      windowStart: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
-      windowEnd: Joi.string().pattern(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+      windowStart: Joi.string()
+        .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+        .optional(),
+      windowEnd: Joi.string()
+        .pattern(/^([01]\d|2[0-3]):([0-5]\d)$/)
+        .optional(),
       minHours: Joi.number().min(1).max(12).optional(),
     }).optional(),
-    workingDays: Joi.array().items(
-      Joi.string().valid('Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday')
-    ).min(1).optional(),
+    workingDays: Joi.array()
+      .items(
+        Joi.string().valid(
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday'
+        )
+      )
+      .min(1)
+      .optional(),
     shiftType: Joi.string().valid('regular', 'night', 'rotating', 'flexible', 'custom').optional(),
     rotation: Joi.object({
       enabled: Joi.boolean().optional(),
       cycleDays: Joi.number().integer().min(1).max(30).optional(),
       rotateShifts: Joi.array().items(commonSchemas.objectId).optional(),
     }).optional(),
-  }).min(1).message('At least one field must be provided for update'),
+  })
+    .min(1)
+    .message('At least one field must be provided for update'),
 
   assign: Joi.object({
     employeeId: Joi.string().required().messages({
@@ -964,7 +1030,9 @@ export const timesheetSchemas = {
     billable: Joi.boolean().optional(),
     billRate: Joi.number().min(0).optional(),
     status: Joi.string().valid('draft', 'submitted', 'approved', 'rejected').optional(),
-  }).min(1).message('At least one field must be provided for update'),
+  })
+    .min(1)
+    .message('At least one field must be provided for update'),
 
   submitTimesheet: Joi.object({
     startDate: commonSchemas.isoDate.required().messages({
@@ -981,7 +1049,9 @@ export const timesheetSchemas = {
       });
     }
     // Validate range is not more than 31 days
-    const daysDiff = Math.ceil((new Date(value.endDate) - new Date(value.startDate)) / (1000 * 60 * 60 * 24));
+    const daysDiff = Math.ceil(
+      (new Date(value.endDate) - new Date(value.startDate)) / (1000 * 60 * 60 * 24)
+    );
     if (daysDiff > 31) {
       return helpers.error('any.invalid', {
         message: 'Timesheet period cannot exceed 31 days',

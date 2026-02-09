@@ -174,7 +174,6 @@ import Taxes from '../finance-accounts/sales/taxes';
 import Department from '../hrm/employees/deparment';
 import Designations from '../hrm/employees/designations';
 import EmployeeDetails from '../hrm/employees/employeedetails';
-import EmployeesGrid from '../hrm/employees/employeesGrid';
 import EmployeeList from '../hrm/employees/employeesList';
 import Policy from '../hrm/employees/policy';
 import Holidays from '../hrm/holidays';
@@ -273,14 +272,14 @@ import RolesPermissions from '../userManagement/rolesPermissions';
 import Invoices from '../finance-accounts/sales/invoices';
 import AttendanceEmployee from '../hrm/attendance/attendance_employee';
 import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
+import BatchesList from '../hrm/attendance/batchesList';
 import LeaveAdmin from '../hrm/attendance/leaves/leaveAdmin';
 import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
 import LeaveSettings from '../hrm/attendance/leaves/leavesettings';
 import OverTime from '../hrm/attendance/overtime';
 import ScheduleTiming from '../hrm/attendance/scheduletiming';
-import TimeSheet from '../hrm/attendance/timesheet';
 import ShiftsList from '../hrm/attendance/shiftsList';
-import BatchesList from '../hrm/attendance/batchesList';
+import TimeSheet from '../hrm/attendance/timesheet';
 import Promotion from '../hrm/promotion';
 import Resignation from '../hrm/resignation';
 import Termination from '../hrm/termination';
@@ -1758,12 +1757,15 @@ export const publicRoutes = [
     roles: ['admin', 'hr', 'superadmin'],
   },
   {
+<<<<<<< main
+=======
     path: routes.employeeGrid,
     element: <EmployeesGrid />,
     route: Route,
     roles: ['admin', 'hr', 'superadmin'],
   },
   {
+>>>>>>> main
     path: routes.departments,
     element: <Department />,
     route: Route,
