@@ -24,6 +24,7 @@ import {
 import { sendEmployeeCredentialsEmail } from '../../utils/emailer.js';
 import { broadcastEmployeeEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
 import { deleteUploadedFile, getPublicUrl } from '../../config/multer.config.js';
+import { formatDDMMYYYY, isValidDDMMYYYY, parseDDMMYYYY } from '../../utils/dateFormat.js';
 
 /**
  * Generate secure random password for new employees
@@ -48,6 +49,139 @@ const normalizeStatus = (status) => {
   if (normalized === 'terminated') return 'Terminated';
   if (normalized === 'on leave') return 'On Leave';
   return 'Active';
+};
+
+const parseDateField = (value, fieldName) => {
+  if (value === undefined || value === null || value === '') return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' && !isValidDDMMYYYY(value)) {
+    throw buildValidationError(fieldName, 'Date must be in DD-MM-YYYY format');
+  }
+  const parsed = parseDDMMYYYY(value);
+  if (!parsed) {
+    throw buildValidationError(fieldName, 'Date must be in DD-MM-YYYY format');
+  }
+  return parsed;
+};
+
+const normalizeEmployeeDates = (data) => {
+  if (!data || typeof data !== 'object') return data;
+
+  const normalized = { ...data };
+
+  if ('dateOfBirth' in normalized) {
+    normalized.dateOfBirth = parseDateField(normalized.dateOfBirth, 'dateOfBirth');
+  }
+  if ('dateOfJoining' in normalized) {
+    normalized.dateOfJoining = parseDateField(normalized.dateOfJoining, 'dateOfJoining');
+  }
+  if ('joiningDate' in normalized) {
+    normalized.joiningDate = parseDateField(normalized.joiningDate, 'joiningDate');
+  }
+
+  if (normalized.personal && typeof normalized.personal === 'object') {
+    normalized.personal = { ...normalized.personal };
+    if ('birthday' in normalized.personal) {
+      normalized.personal.birthday = parseDateField(normalized.personal.birthday, 'personal.birthday');
+    }
+    if (normalized.personal.passport && typeof normalized.personal.passport === 'object') {
+      normalized.personal.passport = { ...normalized.personal.passport };
+      if ('issueDate' in normalized.personal.passport) {
+        normalized.personal.passport.issueDate = parseDateField(
+          normalized.personal.passport.issueDate,
+          'personal.passport.issueDate'
+        );
+      }
+      if ('expiryDate' in normalized.personal.passport) {
+        normalized.personal.passport.expiryDate = parseDateField(
+          normalized.personal.passport.expiryDate,
+          'personal.passport.expiryDate'
+        );
+      }
+    }
+  }
+
+  if (Array.isArray(normalized.education)) {
+    normalized.education = normalized.education.map((entry, index) => ({
+      ...entry,
+      startDate: parseDateField(entry?.startDate, `education.${index}.startDate`),
+      endDate: parseDateField(entry?.endDate, `education.${index}.endDate`)
+    }));
+  }
+
+  if (Array.isArray(normalized.experience)) {
+    normalized.experience = normalized.experience.map((entry, index) => ({
+      ...entry,
+      startDate: parseDateField(entry?.startDate, `experience.${index}.startDate`),
+      endDate: parseDateField(entry?.endDate, `experience.${index}.endDate`)
+    }));
+  }
+
+  return normalized;
+};
+
+const ensureEmployeeDateLogic = (data, existingEmployee = null) => {
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+  const dob =
+    data?.dateOfBirth ||
+    data?.personal?.birthday ||
+    existingEmployee?.dateOfBirth ||
+    existingEmployee?.personal?.birthday ||
+    null;
+
+  if (dob instanceof Date && dob > todayStart) {
+    throw buildValidationError('dateOfBirth', 'Date of birth cannot be in the future');
+  }
+
+  const joining =
+    data?.dateOfJoining ||
+    data?.joiningDate ||
+    existingEmployee?.dateOfJoining ||
+    existingEmployee?.joiningDate ||
+    null;
+
+  if (dob instanceof Date && joining instanceof Date && joining < dob) {
+    throw buildValidationError('dateOfJoining', 'Joining date must be on or after date of birth');
+  }
+};
+
+const formatEmployeeDates = (employee) => {
+  if (!employee) return employee;
+  const formatted = { ...employee };
+
+  formatted.dateOfBirth = formatDDMMYYYY(formatted.dateOfBirth);
+  formatted.dateOfJoining = formatDDMMYYYY(formatted.dateOfJoining);
+  formatted.joiningDate = formatDDMMYYYY(formatted.joiningDate);
+
+  if (formatted.personal && typeof formatted.personal === 'object') {
+    formatted.personal = { ...formatted.personal };
+    formatted.personal.birthday = formatDDMMYYYY(formatted.personal.birthday);
+    if (formatted.personal.passport && typeof formatted.personal.passport === 'object') {
+      formatted.personal.passport = { ...formatted.personal.passport };
+      formatted.personal.passport.issueDate = formatDDMMYYYY(formatted.personal.passport.issueDate);
+      formatted.personal.passport.expiryDate = formatDDMMYYYY(formatted.personal.passport.expiryDate);
+    }
+  }
+
+  if (Array.isArray(formatted.education)) {
+    formatted.education = formatted.education.map((entry) => ({
+      ...entry,
+      startDate: formatDDMMYYYY(entry?.startDate),
+      endDate: formatDDMMYYYY(entry?.endDate)
+    }));
+  }
+
+  if (Array.isArray(formatted.experience)) {
+    formatted.experience = formatted.experience.map((entry) => ({
+      ...entry,
+      startDate: formatDDMMYYYY(entry?.startDate),
+      endDate: formatDDMMYYYY(entry?.endDate)
+    }));
+  }
+
+  return formatted;
 };
 
 /**
@@ -173,11 +307,12 @@ export const getEmployees = asyncHandler(async (req, res) => {
   ];
 
   const employees = await collections.employees.aggregate(pipeline).toArray();
+  const formattedEmployees = employees.map(formatEmployeeDates);
 
   // Build pagination metadata
   const pagination = buildPagination(pageNum, limitNum, total);
 
-  return sendSuccess(res, employees, 'Employees retrieved successfully', 200, pagination);
+  return sendSuccess(res, formattedEmployees, 'Employees retrieved successfully', 200, pagination);
 });
 
 /**
@@ -305,10 +440,12 @@ export const getEmployeeById = asyncHandler(async (req, res) => {
   // Remove sensitive fields for non-admin users
   if (user.role !== 'admin' && user.role !== 'hr' && user.role !== 'superadmin') {
     const { salary, bank, emergencyContacts, ...sanitizedEmployee } = employee;
-    return sendSuccess(res, sanitizedEmployee);
+    const formattedEmployee = formatEmployeeDates(sanitizedEmployee);
+    return sendSuccess(res, formattedEmployee);
   }
 
-  return sendSuccess(res, employee);
+  const formattedEmployee = formatEmployeeDates(employee);
+  return sendSuccess(res, formattedEmployee);
 });
 
 /**
@@ -347,9 +484,12 @@ export const createEmployee = asyncHandler(async (req, res) => {
     address: restEmployeeData.address || restEmployeeData.personal?.address,
   };
 
+  const normalizedWithDates = normalizeEmployeeDates(normalizedData);
+  ensureEmployeeDateLogic(normalizedWithDates);
+
   // Check if email already exists
   const existingEmployee = await collections.employees.findOne({
-    'contact.email': normalizedData.email
+    'contact.email': normalizedWithDates.email
   });
 
   if (existingEmployee) {
@@ -357,14 +497,14 @@ export const createEmployee = asyncHandler(async (req, res) => {
   }
 
   // Check if employee code already exists (if provided)
-  if (normalizedData.employeeId) {
+  if (normalizedWithDates.employeeId) {
     const existingCode = await collections.employees.findOne({
-      employeeId: normalizedData.employeeId
+      employeeId: normalizedWithDates.employeeId
     });
 
     if (existingCode) {
-      throw buildConflictError('Employee', `employee code: ${normalizedData.employeeId}`);
-    }
+    throw buildConflictError('Employee', `employee code: ${normalizedWithDates.employeeId}`);
+  }
   }
 
   // Generate secure password
@@ -373,21 +513,21 @@ export const createEmployee = asyncHandler(async (req, res) => {
 
   // Determine role for Clerk
   let clerkRole = 'employee';
-  if (normalizedData.account?.role === 'HR' || normalizedData.account?.role === 'hr') {
+  if (normalizedWithDates.account?.role === 'HR' || normalizedWithDates.account?.role === 'hr') {
     clerkRole = 'hr';
-  } else if (normalizedData.account?.role === 'Admin' || normalizedData.account?.role === 'admin') {
+  } else if (normalizedWithDates.account?.role === 'Admin' || normalizedWithDates.account?.role === 'admin') {
     clerkRole = 'admin';
   }
 
   // Generate username from email if not provided
-  const username = normalizedData.account?.userName || normalizedData.email.split('@')[0];
+  const username = normalizedWithDates.account?.userName || normalizedWithDates.email.split('@')[0];
 
   // Create Clerk user
   let clerkUserId;
   try {
     console.log('[Employee Controller] Creating Clerk user with username:', username);
     const createdUser = await clerkClient.users.createUser({
-      emailAddress: [normalizedData.email],
+      emailAddress: [normalizedWithDates.email],
       username: username,
       password: password,
       publicMetadata: {
@@ -470,18 +610,18 @@ export const createEmployee = asyncHandler(async (req, res) => {
 
   // Add audit fields and clerkUserId
   const employeeToInsert = {
-    ...normalizedData,
+    ...normalizedWithDates,
     clerkUserId: clerkUserId,
     account: {
-      ...normalizedData.account,
+      ...normalizedWithDates.account,
       password: password, // Store password (for reference)
-      role: normalizedData.account?.role || 'Employee',
+      role: normalizedWithDates.account?.role || 'Employee',
     },
     createdAt: new Date(),
     updatedAt: new Date(),
     createdBy: user.userId,
     updatedBy: user.userId,
-    status: normalizeStatus(normalizedData.status || 'Active')
+    status: normalizeStatus(normalizedWithDates.status || 'Active')
   };
 
   // Create employee
@@ -517,6 +657,7 @@ export const createEmployee = asyncHandler(async (req, res) => {
 
   // Get the created employee
   const employee = await collections.employees.findOne({ _id: result.insertedId });
+  const formattedEmployee = formatEmployeeDates(employee);
 
   // Send email with credentials
   try {
@@ -525,15 +666,15 @@ export const createEmployee = asyncHandler(async (req, res) => {
       : 'http://localhost:3000/login';
 
     await sendEmployeeCredentialsEmail({
-      to: normalizedData.email,
+      to: normalizedWithDates.email,
       password: password,
       userName: username,
       loginLink: loginLink,
-      firstName: normalizedData.firstName,
-      lastName: normalizedData.lastName,
-      companyName: normalizedData.companyName || 'Your Company',
+      firstName: normalizedWithDates.firstName,
+      lastName: normalizedWithDates.lastName,
+      companyName: normalizedWithDates.companyName || 'Your Company',
     });
-    console.log('[Employee Controller] Credentials email sent to:', normalizedData.email);
+    console.log('[Employee Controller] Credentials email sent to:', normalizedWithDates.email);
   } catch (emailError) {
     console.error('[Employee Controller] Failed to send email:', emailError);
     // Continue anyway - employee is created
@@ -545,7 +686,7 @@ export const createEmployee = asyncHandler(async (req, res) => {
     broadcastEmployeeEvents.created(io, user.companyId, employee);
   }
 
-  return sendCreated(res, employee, 'Employee created successfully. Credentials email sent.');
+  return sendCreated(res, formattedEmployee, 'Employee created successfully. Credentials email sent.');
 });
 
 /**
@@ -599,14 +740,17 @@ export const updateEmployee = asyncHandler(async (req, res) => {
     }
   }
 
+  const normalizedUpdateData = normalizeEmployeeDates(updateData);
+  ensureEmployeeDateLogic(normalizedUpdateData, employee);
+
   // Update audit fields
-  updateData.updatedAt = new Date();
-  updateData.updatedBy = user.userId;
+  normalizedUpdateData.updatedAt = new Date();
+  normalizedUpdateData.updatedBy = user.userId;
 
   // Update employee
   const result = await collections.employees.updateOne(
     { _id: new ObjectId(id) },
-    { $set: updateData }
+    { $set: normalizedUpdateData }
   );
 
   if (result.matchedCount === 0) {
@@ -615,6 +759,7 @@ export const updateEmployee = asyncHandler(async (req, res) => {
 
   // Get updated employee
   const updatedEmployee = await collections.employees.findOne({ _id: new ObjectId(id) });
+  const formattedEmployee = formatEmployeeDates(updatedEmployee);
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -622,7 +767,7 @@ export const updateEmployee = asyncHandler(async (req, res) => {
     broadcastEmployeeEvents.updated(io, user.companyId, updatedEmployee);
   }
 
-  return sendSuccess(res, updatedEmployee, 'Employee updated successfully');
+  return sendSuccess(res, formattedEmployee, 'Employee updated successfully');
 });
 
 /**
@@ -845,8 +990,9 @@ export const getMyProfile = asyncHandler(async (req, res) => {
 
   // Remove sensitive fields
   const { salary, bank, emergencyContacts, ...sanitizedEmployee } = employee;
+  const formattedEmployee = formatEmployeeDates(sanitizedEmployee);
 
-  return sendSuccess(res, sanitizedEmployee);
+  return sendSuccess(res, formattedEmployee);
 });
 
 /**
@@ -890,14 +1036,17 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
     }
   });
 
+  const normalizedUpdate = normalizeEmployeeDates(sanitizedUpdate);
+  ensureEmployeeDateLogic(normalizedUpdate, employee);
+
   // Update audit fields
-  sanitizedUpdate.updatedAt = new Date();
-  sanitizedUpdate.updatedBy = user.userId;
+  normalizedUpdate.updatedAt = new Date();
+  normalizedUpdate.updatedBy = user.userId;
 
   // Update employee
   const result = await collections.employees.updateOne(
     { _id: employee._id },
-    { $set: sanitizedUpdate }
+    { $set: normalizedUpdate }
   );
 
   if (result.matchedCount === 0) {
@@ -907,7 +1056,8 @@ export const updateMyProfile = asyncHandler(async (req, res) => {
   // Get updated employee
   const updatedEmployee = await collections.employees.findOne({ _id: employee._id });
 
-  return sendSuccess(res, updatedEmployee, 'Profile updated successfully');
+  const formattedEmployee = formatEmployeeDates(updatedEmployee);
+  return sendSuccess(res, formattedEmployee, 'Profile updated successfully');
 });
 
 /**
@@ -1044,7 +1194,9 @@ export const searchEmployees = asyncHandler(async (req, res) => {
     })
     .toArray();
 
-  return sendSuccess(res, employees, 'Search results retrieved successfully');
+  const formattedEmployees = employees.map(formatEmployeeDates);
+
+  return sendSuccess(res, formattedEmployees, 'Search results retrieved successfully');
 });
 
 /**
