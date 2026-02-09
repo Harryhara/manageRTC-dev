@@ -5,6 +5,9 @@ import ImageWithBasePath from "../../../core/common/imageWithBasePath";
 import ReactApexChart from "react-apexcharts";
 import { useDashboardData } from "../../../core/data/redux/useDashboardData";
 import Footer from "../../../core/common/footer";
+// Role-Based Components
+import { SuperAdminOnly } from "../../../core/components/RoleBasedRenderer";
+import ErrorBoundary from "../../../core/components/ErrorBoundary";
 
 const SuperAdminDashboard = () => {
   const routes = all_routes;
@@ -257,7 +260,9 @@ const SuperAdminDashboard = () => {
   };
 
   return (
-    <div className="page-wrapper">
+    <ErrorBoundary>
+      <SuperAdminOnly>
+        <div className="page-wrapper">
       <div className="content">
         {/* Breadcrumb menu */}
         <div className="d-md-flex d-block align-items-center justify-content-between page-breadcrumb mb-3">
@@ -1032,7 +1037,9 @@ const SuperAdminDashboard = () => {
         </div>
       </div>
       <Footer />
-    </div>
+        </div>
+      </SuperAdminOnly>
+    </ErrorBoundary>
   );
 };
 

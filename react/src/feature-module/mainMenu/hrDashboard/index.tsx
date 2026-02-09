@@ -16,6 +16,10 @@ import { all_routes } from "../../router/all_routes";
 import { useHRDashboardREST } from "../../../hooks/useHRDashboardREST";
 // REST API Hook for user profile
 import { useUserProfileREST } from "../../../hooks/useUserProfileREST";
+// Role-Based Components
+import { RoleBasedRenderer, HROnly } from "../../../core/components/RoleBasedRenderer";
+import ErrorBoundary from "../../../core/components/ErrorBoundary";
+import { PageLoading, CardSkeleton } from "../../../core/components/LoadingStates";
 
 const HRDashboard = () => {
   const routes = all_routes;
@@ -766,49 +770,19 @@ const HRDashboard = () => {
   };
 
   if (loading) {
-    return (
-      <div className="page-wrapper">
-        <div className="content">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: "400px" }}>
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Loading...</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="page-wrapper">
-        <div className="content">
-          <div className="alert alert-danger" role="alert">
-            {error}
-          </div>
-        </div>
-      </div>
-    );
+    return <PageLoading message="Loading HR Dashboard..." />;
   }
 
   // Show loading state if data hasn't been fetched yet
   if (!dashboardData && !error) {
-    return (
-      <div className="page-wrapper">
-        <div className="content">
-          <div className="d-flex justify-content-center align-items-center" style={{ minHeight: "400px" }}>
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Loading dashboard data...</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return <PageLoading message="Loading dashboard data..." />;
   }
 
   return (
-    <>
-      <div className="page-wrapper">
+    <ErrorBoundary>
+      <HROnly>
+        <>
+          <div className="page-wrapper">
         <div className="content">
           {/* Breadcrumb */}
           <div className="d-md-flex d-block align-items-center justify-content-between page-breadcrumb mb-3">
@@ -890,12 +864,13 @@ const HRDashboard = () => {
               <div className="d-flex align-items-center mb-3">
                 <span className="avatar avatar-xl flex-shrink-0">
                   {(() => {
-                    // Determine avatar source based on role
+                    // Determine avatar source based on role (case-insensitive)
                     let avatarSrc: string | undefined | null;
-                    if (profile?.role === 'admin') {
+                    const userRole = profile?.role?.toLowerCase();
+                    if (userRole === 'admin') {
                       // Admin uses companyLogo
                       avatarSrc = (profile as any).companyLogo;
-                    } else if (profile?.role === 'hr' || profile?.role === 'employee') {
+                    } else if (userRole === 'hr' || userRole === 'employee') {
                       // HR and Employee use profileImage
                       avatarSrc = (profile as any).profileImage;
                     }
@@ -2575,7 +2550,9 @@ const HRDashboard = () => {
         </div>
         <Footer />
       </div>
-    </>
+        </>
+      </HROnly>
+    </ErrorBoundary>
   );
 };
 

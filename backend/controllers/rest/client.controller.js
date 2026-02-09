@@ -24,6 +24,7 @@ import {
   sendCreated,
   sendSuccess,
 } from '../../utils/apiResponse.js';
+import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
 /**
  * Helper function to check if user has required role
@@ -624,7 +625,7 @@ export const exportPDF = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .toArray();
 
-  console.log('[ExportPDF] Found clients:', clients.length);
+  devLog('[ExportPDF] Found clients:', clients.length);
 
   // Create PDF document
   const doc = new PDFDocument();
@@ -687,11 +688,11 @@ export const exportPDF = asyncHandler(async (req, res) => {
 
   // Wait for file to be written
   writeStream.on('finish', () => {
-    console.log('[ExportPDF] PDF file created successfully');
+    devLog('[ExportPDF] PDF file created successfully');
     // Send the file as a download response
     res.download(filePath, fileName, (err) => {
       if (err) {
-        console.error('[ExportPDF] Error sending PDF file:', err);
+        devError('[ExportPDF] Error sending PDF file:', err);
       }
       // Optionally delete the temp file after sending
       // fs.unlinkSync(filePath);
@@ -699,7 +700,7 @@ export const exportPDF = asyncHandler(async (req, res) => {
   });
 
   writeStream.on('error', (err) => {
-    console.error('[ExportPDF] Error writing PDF file:', err);
+    devError('[ExportPDF] Error writing PDF file:', err);
     throw buildValidationError('export', 'Failed to generate PDF file');
   });
 });
@@ -728,7 +729,7 @@ export const exportExcel = asyncHandler(async (req, res) => {
     .sort({ createdAt: -1 })
     .toArray();
 
-  console.log('[ExportExcel] Found clients:', clients.length);
+  devLog('[ExportExcel] Found clients:', clients.length);
 
   // For each client, count projects from the project collection
   const clientsWithProjects = await Promise.all(
@@ -798,12 +799,12 @@ export const exportExcel = asyncHandler(async (req, res) => {
   // Write Excel file
   await workbook.xlsx.writeFile(filePath);
 
-  console.log('[ExportExcel] Excel file created successfully');
+  devLog('[ExportExcel] Excel file created successfully');
 
   // Send the file as a download response
   res.download(filePath, fileName, (err) => {
     if (err) {
-      console.error('[ExportExcel] Error sending Excel file:', err);
+      devError('[ExportExcel] Error sending Excel file:', err);
     }
     // Optionally delete the temp file after sending
     // fs.unlinkSync(filePath);

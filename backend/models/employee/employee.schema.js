@@ -323,6 +323,12 @@ const employeeSchema = new mongoose.Schema({
   shiftEffectiveDate: {
     type: Date
   },
+  // Batch Assignment (for shift rotation groups)
+  batchId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Batch',
+    index: true
+  },
 
   // Salary Information
   salary: salarySchema,

@@ -19,6 +19,7 @@ import {
   sendSuccess
 } from '../../utils/apiResponse.js';
 import { getSystemDefaultAvatarUrl, isValidAvatar } from '../../utils/avatarUtils.js';
+import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
 /**
  * Helper function to get valid avatar URL with proper validation
@@ -55,7 +56,7 @@ function getValidAvatarUrl(employee) {
 export const getCurrentUserProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  console.log(
+  devLog(
     '[User Profile Controller] getCurrentUserProfile - userId:',
     user.userId,
     'role:',
@@ -64,8 +65,9 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
     user.companyId
   );
 
-  // Check for admin and hr roles (they may have company info instead of employee record)
-  if (user.role === 'admin') {
+  // Check for admin and hr roles (they may have company info instead of employee record) - case-insensitive
+  const userRole = user.role?.toLowerCase();
+  if (userRole === 'admin') {
     if (!user.companyId) {
       throw buildValidationError('companyId', 'Company ID is required for admin users');
     }
@@ -223,7 +225,7 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
     // Get valid avatar URL using helper function
     const validAvatarUrl = getValidAvatarUrl(employee);
 
-    // Return full employee profile data with proper field mapping
+    // Return full employee profile data with proper field mapping (using canonical schema)
     const profileData = {
       // Header/Role format (for useUserProfileREST hook)
       role: employee.role || employee.account?.role || 'employee',
@@ -232,7 +234,9 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
       firstName: employee.firstName || '',
       lastName: employee.lastName || '',
       fullName: employee.fullName || `${employee.firstName || ''} ${employee.lastName || ''}`.trim(),
+      // Use canonical email field (with fallback to contact for backward compatibility)
       email: employee.email || employee.contact?.email || user.email,
+      // Use canonical phone field (with fallback to contact for backward compatibility)
       phone: employee.phone || employee.contact?.phone || null,
       designation: employee.designationTitle || null,
       department: employee.departmentName || null,
@@ -244,8 +248,9 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
       // Full profile format (for profile page)
       _id: employee._id?.toString() || '',
       userId: employee.clerkUserId || user.userId,
-      // Check both dateOfBirth and personal.birthday
+      // Use canonical dateOfBirth field (with fallbacks for backward compatibility)
       dateOfBirth: employee.dateOfBirth || employee.personal?.birthday || employee.dateOfJoining || null,
+      // Use canonical gender field (with fallback for backward compatibility)
       gender: employee.gender || employee.personal?.gender || '',
       // Alias for profile page - same validated avatar URL
       profilePhoto: validAvatarUrl,
@@ -260,7 +265,7 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
       } : null,
       // Check both about and notes, and bio
       about: employee.about || employee.notes || employee.bio || '',
-      // Check both root address and personal.address
+      // Use canonical address field (with fallback to personal.address for backward compatibility)
       address: {
         street: employee.address?.street || employee.personal?.address?.street || '',
         city: employee.address?.city || employee.personal?.address?.city || '',
@@ -333,8 +338,8 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
     return sendSuccess(res, profileData, 'Profile retrieved successfully');
   }
 
-  // Superadmin role - return basic user info from Clerk metadata
-  if (user.role === 'superadmin') {
+  // Superadmin role - return basic user info from Clerk metadata (case-insensitive)
+  if (userRole === 'superadmin') {
     const profileData = {
       // Header/Role format (for useUserProfileREST hook)
       role: 'superadmin',
@@ -383,8 +388,9 @@ export const getCurrentUserProfile = asyncHandler(async (req, res) => {
 export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
+  const userRole = user.role?.toLowerCase(); // Normalize role for case-insensitive comparison
 
-  console.log(
+  devLog(
     '[User Profile Controller] updateCurrentUserProfile - userId:',
     user.userId,
     'role:',
@@ -392,7 +398,7 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
   );
 
   // Admin role - update company info (limited fields)
-  if (user.role === 'admin') {
+  if (userRole === 'admin') {
     if (!user.companyId) {
       throw buildValidationError('companyId', 'Company ID is required for admin users');
     }
@@ -421,8 +427,8 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
     return sendSuccess(res, { ...updateData }, 'Company profile updated successfully');
   }
 
-  // HR and Employee roles - update employee profile
-  if (user.role === 'hr' || user.role === 'employee') {
+  // HR and Employee roles - update employee profile (case-insensitive)
+  if (userRole === 'hr' || userRole === 'employee') {
     if (!user.companyId) {
       throw buildValidationError('companyId', 'Company ID is required');
     }
@@ -457,13 +463,12 @@ export const updateCurrentUserProfile = asyncHandler(async (req, res) => {
     if (updateData.bio !== undefined) sanitizedUpdate.bio = updateData.bio;
     if (updateData.skills !== undefined) sanitizedUpdate.skills = updateData.skills;
 
-    // Handle phone (both root and contact.phone)
+    // Handle phone (use canonical phone field at root level)
     if (updateData.phone !== undefined) {
       sanitizedUpdate.phone = updateData.phone;
-      sanitizedUpdate['contact.phone'] = updateData.phone;
     }
 
-    // Handle address
+    // Handle address (use canonical address field at root level)
     if (updateData.address) {
       sanitizedUpdate.address = {
         street: updateData.address.street || '',
@@ -779,7 +784,7 @@ export const changePassword = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const { currentPassword, newPassword, confirmPassword } = req.body;
 
-  console.log('[User Profile Controller] changePassword - userId:', user.userId);
+  devLog('[User Profile Controller] changePassword - userId:', user.userId);
 
   // Validate input
   if (!currentPassword || !newPassword || !confirmPassword) {
@@ -794,8 +799,9 @@ export const changePassword = asyncHandler(async (req, res) => {
     throw buildValidationError('newPassword', 'New password must be at least 6 characters long');
   }
 
-  // For employee/admin roles, update the password in the database
-  if (user.companyId && (user.role === 'hr' || user.role === 'employee' || user.role === 'admin')) {
+  // For employee/admin roles, update the password in the database (case-insensitive)
+  const userRole = user.role?.toLowerCase();
+  if (user.companyId && (userRole === 'hr' || userRole === 'employee' || userRole === 'admin')) {
     const collections = getTenantCollections(user.companyId);
 
     // Find employee/user by Clerk user ID
@@ -849,7 +855,7 @@ export const changePassword = asyncHandler(async (req, res) => {
 export const getAdminProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
 
-  console.log('[User Profile Controller] getAdminProfile - userId:', user.userId, 'companyId:', user.companyId);
+  devLog('[User Profile Controller] getAdminProfile - userId:', user.userId, 'companyId:', user.companyId);
 
   // Validate admin role
   if (user.role !== 'admin') {
@@ -907,7 +913,7 @@ export const getAdminProfile = asyncHandler(async (req, res) => {
       };
     }
   } catch (subError) {
-    console.error('[User Profile Controller] Error fetching subscription:', subError.message);
+    devError('[User Profile Controller] Error fetching subscription:', subError.message);
   }
 
   // Get admin user info from Clerk metadata
@@ -965,7 +971,7 @@ export const updateAdminProfile = asyncHandler(async (req, res) => {
   const user = extractUser(req);
   const updateData = req.body;
 
-  console.log('[User Profile Controller] updateAdminProfile - userId:', user.userId, 'companyId:', user.companyId);
+  devLog('[User Profile Controller] updateAdminProfile - userId:', user.userId, 'companyId:', user.companyId);
 
   // Validate admin role
   if (user.role !== 'admin') {

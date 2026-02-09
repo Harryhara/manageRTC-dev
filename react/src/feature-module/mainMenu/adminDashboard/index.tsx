@@ -18,6 +18,10 @@ import { useAdminDashboardREST } from "../../../hooks/useAdminDashboardREST";
 import { useUserProfileREST } from "../../../hooks/useUserProfileREST";
 import { useSocket } from "../../../SocketContext";
 import { all_routes } from "../../router/all_routes";
+// Role-Based Components
+import { AdminOnly } from "../../../core/components/RoleBasedRenderer";
+import ErrorBoundary from "../../../core/components/ErrorBoundary";
+import { PageLoading } from "../../../core/components/LoadingStates";
 interface DashboardData {
   pendingItems?: {
     approvals: number;
@@ -1200,53 +1204,15 @@ const AdminDashboard = () => {
   };
 
   if (loading || !isLoaded) {
-    return (
-      <div className="page-wrapper">
-        <div className="content">
-          <div
-            className="d-flex justify-content-center align-items-center"
-            style={{ height: '400px' }}
-          >
-            <div className="spinner-border text-primary" role="status">
-              <span className="visually-hidden">Loading...</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="page-wrapper">
-        <div className="content">
-          <div className="alert alert-danger" role="alert">
-            <h4 className="alert-heading">Error!</h4>
-            <p>{error}</p>
-            {!socket && (
-              <div className="mt-3">
-                <strong>Troubleshooting:</strong>
-                <ul className="mb-0 mt-2">
-                  <li>Check that your backend server is running on port 5000</li>
-                  <li>Verify Socket.IO is properly configured</li>
-                  <li>Ensure your Clerk user has proper metadata (role, companyId)</li>
-                  <li>Check browser console for detailed connection errors</li>
-                </ul>
-              </div>
-            )}
-            <button className="btn btn-primary mt-3" onClick={() => window.location.reload()}>
-              Refresh Page
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+    return <PageLoading message="Loading Admin Dashboard..." />;
   }
 
   return (
-    <>
-      {/* Page Wrapper */}
-      <div className="page-wrapper">
+    <ErrorBoundary>
+      <AdminOnly>
+        <>
+          {/* Page Wrapper */}
+          <div className="page-wrapper">
         <div className="content">
           {/* Breadcrumb */}
           <div className="d-md-flex d-block align-items-center justify-content-between page-breadcrumb mb-3">
@@ -3614,7 +3580,9 @@ const AdminDashboard = () => {
           await fetchAllDashboardData({ year: date.getFullYear() });
         }}
       />
-    </>
+      </>
+    </AdminOnly>
+  </ErrorBoundary>
   );
 };
 

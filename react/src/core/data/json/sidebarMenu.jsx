@@ -4,7 +4,15 @@ import { useUser } from "@clerk/clerk-react";
 const useSidebarData = () => {
   const { user } = useUser();
   const routes = all_routes;
-  const userRole = user?.publicMetadata?.role || "public";
+  const originalRole = user?.publicMetadata?.role || "public";
+  const userRole = originalRole?.toLowerCase();
+
+  console.log('[Sidebar Menu] User Role Detection:', {
+    originalRole,
+    normalizedRole: userRole,
+    matchingCase: userRole
+  });
+
   switch (userRole) {
     case "superadmin":
       return [
@@ -2436,9 +2444,15 @@ const useSidebarData = () => {
                 },
 
                 {
-                  label: "Attendance",
+                  label: "Attendance (Admin)",
                   link: routes.attendanceadmin,
                   base: "attendance-admin",
+                  customSubmenuTwo: false,
+                },
+                {
+                  label: "My Attendance",
+                  link: routes.attendanceemployee,
+                  base: "attendance-employee",
                   customSubmenuTwo: false,
                 },
                 {

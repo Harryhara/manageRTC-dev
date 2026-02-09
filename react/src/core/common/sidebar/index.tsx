@@ -25,12 +25,26 @@ const Sidebar = () => {
     return (user.publicMetadata?.role as string)?.toLowerCase() || "employee";
   };
 
-  // Check if user has access to menu item
+  // Check if user has access to menu item (case-insensitive)
   const hasAccess = (roles?: string[]): boolean => {
     if (!roles || roles.length === 0) return true;
     if (roles.includes("public")) return true;
     const userRole = getUserRole();
-    return roles.includes(userRole);
+    // Normalize both sides to lowercase for case-insensitive comparison
+    const normalizedRoles = roles.map(r => r?.toLowerCase());
+    const hasAccessResult = normalizedRoles.includes(userRole?.toLowerCase());
+
+    // Debug logging for access checks
+    if (!hasAccessResult && roles && roles.length > 0) {
+      console.log('[Sidebar hasAccess] Access Denied:', {
+        userRole,
+        requiredRoles: roles,
+        normalizedRoles,
+        hasAccessResult
+      });
+    }
+
+    return hasAccessResult;
   };
 
   const [subOpen, setSubopen] = useState<any>("Dashboard");
@@ -166,11 +180,11 @@ const Sidebar = () => {
               {user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || "User"}
             </h6>
             <p className="fs-10">
-              {user?.publicMetadata?.role === "admin" ? "Admin" :
-               user?.publicMetadata?.role === "hr" ? "HR" :
-               user?.publicMetadata?.role === "superadmin" ? "Super Admin" :
-               user?.publicMetadata?.role === "manager" ? "Manager" :
-               user?.publicMetadata?.role === "leads" ? "Leads" :
+              {(user?.publicMetadata?.role as string)?.toLowerCase() === "admin" ? "Admin" :
+               (user?.publicMetadata?.role as string)?.toLowerCase() === "hr" ? "HR" :
+               (user?.publicMetadata?.role as string)?.toLowerCase() === "superadmin" ? "Super Admin" :
+               (user?.publicMetadata?.role as string)?.toLowerCase() === "manager" ? "Manager" :
+               (user?.publicMetadata?.role as string)?.toLowerCase() === "leads" ? "Leads" :
                "Employee"}
             </p>
           </div>
@@ -211,11 +225,11 @@ const Sidebar = () => {
                 {user?.fullName || `${user?.firstName || ""} ${user?.lastName || ""}`.trim() || "User"}
               </h6>
               <p className="fs-10">
-                {user?.publicMetadata?.role === "admin" ? "Admin" :
-                 user?.publicMetadata?.role === "hr" ? "HR" :
-                 user?.publicMetadata?.role === "superadmin" ? "Super Admin" :
-                 user?.publicMetadata?.role === "manager" ? "Manager" :
-                 user?.publicMetadata?.role === "leads" ? "Leads" :
+                {(user?.publicMetadata?.role as string)?.toLowerCase() === "admin" ? "Admin" :
+                 (user?.publicMetadata?.role as string)?.toLowerCase() === "hr" ? "HR" :
+                 (user?.publicMetadata?.role as string)?.toLowerCase() === "superadmin" ? "Super Admin" :
+                 (user?.publicMetadata?.role as string)?.toLowerCase() === "manager" ? "Manager" :
+                 (user?.publicMetadata?.role as string)?.toLowerCase() === "leads" ? "Leads" :
                  "Employee"}
               </p>
             </div>
