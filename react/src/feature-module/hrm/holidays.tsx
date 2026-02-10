@@ -586,15 +586,11 @@ const Holidays = () => {
 
     console.log("[Holiday Types] Creating holiday type via REST API:", {
       name: trimmedName,
-      code: buildHolidayTypeCode(trimmedName),
       status: "Active"
     });
 
     // Send to backend via REST API
-    const result = await createHolidayType({
-      name: trimmedName,
-      code: buildHolidayTypeCode(trimmedName),
-    });
+    const result = await createHolidayType({ name: trimmedName });
 
     if (result) {
       setNewTypeName("");
@@ -1128,7 +1124,7 @@ const Holidays = () => {
                   </button>
                 </div>
 
-                <div style={{ maxHeight: "60vh", overflowY: "auto" }}>
+                <div>
                   {holidayEntries.map((entry, index) => (
                     <div
                       key={entry.id}
