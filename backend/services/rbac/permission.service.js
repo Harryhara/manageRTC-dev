@@ -1,7 +1,7 @@
 /**
- * Permission Service (Refactored)
+ * Permission Service (Junction Table Approach - PRIMARY)
  * Handles permission-related business logic
- * Now includes Page references for proper RBAC relationships
+ * PRIMARY STORAGE: role_permissions junction table
  */
 
 import mongoose from 'mongoose';
@@ -15,7 +15,7 @@ import Page from '../../models/rbac/page.schema.js';
  */
 export async function getGroupedPermissions() {
   try {
-    // Use the new method that includes page population
+    // Use new method that includes page population
     const permissions = await Permission.getGroupedWithPages();
     return {
       success: true,
@@ -187,16 +187,18 @@ export async function deletePermission(permissionId) {
   }
 }
 
+// ============================================
+// JUNCTION TABLE PRIMARY METHODS
+// ============================================
+
 /**
  * Get role permissions with full permission details
- * Now uses embedded permissions in role document
+ * PRIMARY METHOD - Uses Junction Table (role_permissions)
  */
 export async function getRolePermissions(roleId) {
   try {
-    const role = await Role.findById(roleId)
-      .select('permissions permissionStats displayName')
-      .lean();
-
+    // Validate role exists
+    const role = await Role.findById(roleId);
     if (!role) {
       return {
         success: false,
@@ -204,55 +206,12 @@ export async function getRolePermissions(roleId) {
       };
     }
 
-    // Check if role has embedded permissions
-    if (!role.permissions || role.permissions.length === 0) {
-      // Fallback to junction table for backward compatibility
-      const rolePermissions = await RolePermission.getRolePermissions(roleId);
-
-      // Group by category for UI
-      const grouped = {};
-      Object.values(rolePermissions).forEach(rp => {
-        const category = rp.category;
-        if (!grouped[category]) {
-          grouped[category] = [];
-        }
-        grouped[category].push(rp);
-      });
-
-      return {
-        success: true,
-        data: {
-          flat: rolePermissions,
-          grouped: Object.entries(grouped).map(([category, perms]) => ({
-            category,
-            permissions: perms,
-          })),
-          source: 'junction',
-        },
-      };
-    }
-
-    // Use embedded permissions - group by category for UI
-    const grouped = {};
-    role.permissions.forEach(perm => {
-      const category = perm.category;
-      if (!grouped[category]) {
-        grouped[category] = [];
-      }
-      grouped[category].push(perm);
-    });
+    // Get permissions from Junction Table
+    const result = await RolePermission.getRolePermissionsGrouped(roleId);
 
     return {
       success: true,
-      data: {
-        flat: role.permissions,
-        grouped: Object.entries(grouped).map(([category, perms]) => ({
-          category,
-          permissions: perms,
-        })),
-        source: 'embedded',
-        permissionStats: role.permissionStats,
-      },
+      data: result,
     };
   } catch (error) {
     return {
@@ -264,7 +223,7 @@ export async function getRolePermissions(roleId) {
 
 /**
  * Set permissions for a role
- * Now uses embedded permissions structure
+ * PRIMARY METHOD - Updates Junction Table (role_permissions)
  */
 export async function setRolePermissions(roleId, permissionsData, userId = null) {
   try {
@@ -277,54 +236,60 @@ export async function setRolePermissions(roleId, permissionsData, userId = null)
       };
     }
 
-    // Validate all permission IDs exist
-    const permissionIds = permissionsData.map(p => typeof p.permissionId === 'string' ? new mongoose.Types.ObjectId(p.permissionId) : p.permissionId);
-    const validPermissions = await Permission.find({ _id: { $in: permissionIds }, isActive: true });
-    const validIds = validPermissions.map(p => p._id.toString());
-
-    // Filter out invalid permission IDs
-    const validPermissionsData = permissionsData.filter(p =>
-      validIds.includes(typeof p.permissionId === 'string' ? p.permissionId : p.permissionId.toString())
+    // Get all valid permissions/pages
+    const permissionIds = permissionsData.map(p =>
+      typeof p.permissionId === 'string' ? new mongoose.Types.ObjectId(p.permissionId) : p.permissionId
     );
+    const validPermissions = await Permission.find({ _id: { $in: permissionIds }, isActive: true });
 
-    // Build permissions array with all required fields
-    const permissions = validPermissionsData.map(p => {
-      const permDetails = validPermissions.find(vp =>
-        vp._id.toString() === (typeof p.permissionId === 'string' ? p.permissionId : p.permissionId.toString())
+    // Build permissions array with all required fields for Junction Table
+    const formattedPermissions = await Promise.all(permissionsData.map(async (p) => {
+      const perm = validPermissions.find(vp =>
+        vp._id.toString() === (typeof p.permissionId === 'string' ? p.permissionId : p.permissionId?.toString())
       );
+
+      if (!perm) return null;
+
+      // Get pageId from permission or directly from input
+      let pageId = perm.pageId;
+      if (p.pageId) {
+        pageId = typeof p.pageId === 'string' ? new mongoose.Types.ObjectId(p.pageId) : p.pageId;
+      }
+
+      // Get route from page if available
+      let route = null;
+      if (pageId) {
+        const page = await Page.findById(pageId);
+        if (page) {
+          route = page.route;
+        }
+      }
+
       return {
-        permissionId: permDetails._id,
-        pageId: permDetails.pageId, // NEW: Include pageId reference
-        module: permDetails.module,
-        category: permDetails.category,
-        displayName: permDetails.displayName,
+        pageId: pageId,
+        permissionId: perm._id,
+        module: perm.module,
+        displayName: perm.displayName,
+        category: perm.category,
+        route: route,
         actions: p.actions || { all: false }
       };
-    });
+    }));
 
-    // Calculate categories
-    const categories = [...new Set(permissions.map(p => p.category))];
+    // Filter out null entries
+    const validFormattedPermissions = formattedPermissions.filter(p => p !== null);
 
-    // Update role with embedded permissions
-    role.permissions = permissions;
-    role.permissionStats = {
-      totalPermissions: permissions.length,
-      categories: categories,
-      lastUpdatedAt: new Date()
-    };
-    role.updatedBy = userId;
-    role.updatedAt = new Date();
+    // Save to Junction Table
+    await RolePermission.setRolePermissions(roleId, validFormattedPermissions, userId);
 
-    await role.save();
-
-    // Also update junction table for backward compatibility
-    await RolePermission.setRolePermissions(roleId, validPermissionsData, userId);
+    // Calculate categories for stats
+    const categories = [...new Set(validFormattedPermissions.map(p => p.category))];
 
     return {
       success: true,
-      message: `Updated ${permissions.length} permissions for role ${role.displayName}`,
+      message: `Updated ${validFormattedPermissions.length} permissions for role ${role.displayName}`,
       data: {
-        totalPermissions: permissions.length,
+        totalPermissions: validFormattedPermissions.length,
         categories: categories,
       },
     };
@@ -338,46 +303,66 @@ export async function setRolePermissions(roleId, permissionsData, userId = null)
 
 /**
  * Check if a role has a specific permission action
- * Now uses embedded permissions structure
+ * PRIMARY METHOD - Uses Junction Table (role_permissions)
  */
 export async function checkRolePermission(roleId, module, action) {
   try {
-    const role = await Role.findById(roleId).select('permissions').lean();
-
-    if (!role) {
-      console.error('Role not found:', roleId);
-      return false;
-    }
-
-    // Check embedded permissions first
-    if (role.permissions && role.permissions.length > 0) {
-      for (const perm of role.permissions) {
-        if (perm.module === module) {
-          if (perm.actions.all) return true;
-          return perm.actions[action] === true;
-        }
-      }
-      return false;
-    }
-
-    // Fallback to junction table for backward compatibility
-    const rolePermissions = await RolePermission.find({ roleId })
-      .populate('permissionId')
-      .lean();
-
-    for (const rp of rolePermissions) {
-      if (rp.permissionId && rp.permissionId.module === module) {
-        if (rp.actions.all) return true;
-        return rp.actions[action] === true;
-      }
-    }
-
-    return false;
+    const hasPermission = await RolePermission.hasModuleAccess(roleId, module, action);
+    return hasPermission;
   } catch (error) {
     console.error('Error checking role permission:', error);
     return false;
   }
 }
+
+/**
+ * Check if role has access to a specific page
+ * PRIMARY METHOD - Uses Junction Table (role_permissions)
+ */
+export async function checkRolePageAccess(roleId, pageId, action = 'read') {
+  try {
+    return await RolePermission.hasPageAccess(roleId, pageId, action);
+  } catch (error) {
+    console.error('Error checking role page access:', error);
+    return false;
+  }
+}
+
+/**
+ * Get all accessible pages for a role
+ * PRIMARY METHOD - Uses Junction Table (role_permissions)
+ */
+export async function getRoleAccessiblePages(roleId) {
+  try {
+    return await RolePermission.getAccessiblePages(roleId);
+  } catch (error) {
+    console.error('Error getting role accessible pages:', error);
+    return [];
+  }
+}
+
+/**
+ * Update a single permission action for a role
+ * PRIMARY METHOD - Uses Junction Table (role_permissions)
+ * @param {String} roleId - Role ID
+ * @param {String} pageId - Page ID (from route param)
+ * @param {Object} actions - Actions to update
+ */
+export async function updateRolePermissionAction(roleId, pageId, actions) {
+  try {
+    const result = await RolePermission.updateRolePermissionAction(roleId, pageId, actions);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+// ============================================
+// PERMISSION-PAGE SYNC METHODS
+// ============================================
 
 /**
  * Sync permissions from pages
@@ -428,6 +413,101 @@ export async function createPermissionFromPage(pageId) {
   }
 }
 
+// ============================================
+// MIGRATION HELPERS
+// ============================================
+
+/**
+ * Migrate role permissions from embedded to junction table
+ * Call this to transition from hybrid to pure junction table approach
+ */
+export async function migrateToJunctionTable(roleId) {
+  try {
+    const role = await Role.findById(roleId);
+    if (!role) {
+      return {
+        success: false,
+        error: 'Role not found',
+      };
+    }
+
+    // Check if role has embedded permissions
+    if (!role.permissions || role.permissions.length === 0) {
+      return {
+        success: true,
+        message: 'No embedded permissions to migrate',
+        data: { migrated: 0 },
+      };
+    }
+
+    // Convert embedded permissions to junction table format
+    const permissionsData = role.permissions.map(p => ({
+      pageId: p.pageId,
+      permissionId: p.permissionId,
+      module: p.module,
+      displayName: p.displayName,
+      category: p.category,
+      route: null,
+      actions: p.actions || { all: false }
+    }));
+
+    // Save to junction table
+    await RolePermission.setRolePermissions(roleId, permissionsData);
+
+    // Clear embedded permissions from role
+    role.permissions = [];
+    role.permissionStats = {
+      totalPermissions: 0,
+      categories: [],
+      lastUpdatedAt: new Date()
+    };
+    await role.save();
+
+    return {
+      success: true,
+      message: `Migrated ${permissionsData.length} permissions to junction table`,
+      data: { migrated: permissionsData.length },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Migrate all roles to junction table
+ */
+export async function migrateAllRolesToJunctionTable() {
+  try {
+    const roles = await Role.find({ 'permissions.0': { $exists: true } });
+    let migrated = 0;
+    let failed = 0;
+
+    for (const role of roles) {
+      try {
+        await migrateToJunctionTable(role._id);
+        migrated++;
+      } catch (error) {
+        console.error(`Failed to migrate role ${role._id}:`, error);
+        failed++;
+      }
+    }
+
+    return {
+      success: true,
+      message: `Migrated ${migrated} roles, ${failed} failed`,
+      data: { migrated, failed, total: roles.length },
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 export default {
   getGroupedPermissions,
   getAllPermissions,
@@ -436,9 +516,17 @@ export default {
   createPermission,
   updatePermission,
   deletePermission,
+  // Junction Table Primary Methods
   getRolePermissions,
   setRolePermissions,
   checkRolePermission,
+  checkRolePageAccess,
+  getRoleAccessiblePages,
+  updateRolePermissionAction,
+  // Sync Methods
   syncPermissionsFromPages,
   createPermissionFromPage,
+  // Migration Helpers
+  migrateToJunctionTable,
+  migrateAllRolesToJunctionTable,
 };

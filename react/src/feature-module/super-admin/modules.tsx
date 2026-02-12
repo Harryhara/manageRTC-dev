@@ -450,68 +450,93 @@ const Modules = () => {
           </div>
 
           {/* Stats Cards */}
-          <div className="row mb-3">
-            <div className="col-md-3">
-              <div className="card bg-primary">
-                <div className="card-body">
-                  <div className="d-flex align-items-center">
-                    <div className="flex-grow-1">
-                      <span className="text-white-50">Total Modules</span>
-                      <h3 className="text-white mb-0">{stats?.totalModules || 0}</h3>
+          <div className="row">
+            {/* Total Modules */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-dark rounded-circle">
+                        <i className="ti ti-apps" />
+                      </span>
                     </div>
-                    <div className="text-white">
-                      <i className="ti ti-apps fs-1 opacity-50"></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="col-md-3">
-              <div className="card bg-success">
-                <div className="card-body">
-                  <div className="d-flex align-items-center">
-                    <div className="flex-grow-1">
-                      <span className="text-white-50">Active Modules</span>
-                      <h3 className="text-white mb-0">{stats?.activeModules || 0}</h3>
-                    </div>
-                    <div className="text-white">
-                      <i className="ti ti-check fs-1 opacity-50"></i>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Total Modules
+                      </p>
+                      <h4>{stats?.totalModules || 0}</h4>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="col-md-3">
-              <div className="card bg-info">
-                <div className="card-body">
-                  <div className="d-flex align-items-center">
-                    <div className="flex-grow-1">
-                      <span className="text-white-50">System Modules</span>
-                      <h3 className="text-white mb-0">{stats?.systemModules || 0}</h3>
+            {/* /Total Modules */}
+            {/* Active Modules */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-success rounded-circle">
+                        <i className="ti ti-check" />
+                      </span>
                     </div>
-                    <div className="text-white">
-                      <i className="ti ti-lock fs-1 opacity-50"></i>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="col-md-3">
-              <div className="card bg-warning">
-                <div className="card-body">
-                  <div className="d-flex align-items-center">
-                    <div className="flex-grow-1">
-                      <span className="text-white-50">Total Pages</span>
-                      <h3 className="text-white mb-0">{allPages.length || 0}</h3>
-                    </div>
-                    <div className="text-white">
-                      <i className="ti ti-file fs-1 opacity-50"></i>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Active Modules
+                      </p>
+                      <h4>{stats?.activeModules || 0}</h4>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
+            {/* /Active Modules */}
+            {/* System Modules */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-info rounded-circle">
+                        <i className="ti ti-lock" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        System Modules
+                      </p>
+                      <h4>{stats?.systemModules || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /System Modules */}
+            {/* Total Pages */}
+            <div className="col-lg-3 col-md-6 d-flex">
+              <div className="card flex-fill">
+                <div className="card-body d-flex align-items-center justify-content-between">
+                  <div className="d-flex align-items-center overflow-hidden">
+                    <div>
+                      <span className="avatar avatar-lg bg-warning rounded-circle">
+                        <i className="ti ti-file" />
+                      </span>
+                    </div>
+                    <div className="ms-2 overflow-hidden">
+                      <p className="fs-12 fw-medium mb-1 text-truncate">
+                        Total Pages
+                      </p>
+                      <h4>{allPages.length || 0}</h4>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            {/* /Total Pages */}
           </div>
+          {/* /Stats Cards */}
 
           {/* Filters and Actions */}
           <div className="card mb-3">
