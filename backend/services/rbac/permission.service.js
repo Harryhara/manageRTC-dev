@@ -1,19 +1,22 @@
 /**
- * Permission Service
+ * Permission Service (Refactored)
  * Handles permission-related business logic
+ * Now includes Page references for proper RBAC relationships
  */
 
 import mongoose from 'mongoose';
 import Permission from '../../models/rbac/permission.schema.js';
 import Role from '../../models/rbac/role.schema.js';
 import RolePermission from '../../models/rbac/rolePermission.schema.js';
+import Page from '../../models/rbac/page.schema.js';
 
 /**
  * Get all permissions grouped by category
  */
 export async function getGroupedPermissions() {
   try {
-    const permissions = await Permission.getGroupedModules();
+    // Use the new method that includes page population
+    const permissions = await Permission.getGroupedWithPages();
     return {
       success: true,
       data: permissions,
@@ -291,6 +294,7 @@ export async function setRolePermissions(roleId, permissionsData, userId = null)
       );
       return {
         permissionId: permDetails._id,
+        pageId: permDetails.pageId, // NEW: Include pageId reference
         module: permDetails.module,
         category: permDetails.category,
         displayName: permDetails.displayName,
@@ -375,6 +379,55 @@ export async function checkRolePermission(roleId, module, action) {
   }
 }
 
+/**
+ * Sync permissions from pages
+ * Creates or updates permissions based on existing pages
+ */
+export async function syncPermissionsFromPages() {
+  try {
+    const results = await Permission.syncFromPages();
+    return {
+      success: true,
+      data: results,
+      message: `Synced ${results.created + results.updated} permissions from pages`,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
+/**
+ * Create permission from a page
+ * Automatically creates a permission for a given page
+ */
+export async function createPermissionFromPage(pageId) {
+  try {
+    const page = await Page.findById(pageId);
+    if (!page) {
+      return {
+        success: false,
+        error: 'Page not found',
+      };
+    }
+
+    const permission = await Permission.findOrCreateFromPage(page);
+
+    return {
+      success: true,
+      data: permission,
+      message: 'Permission created/updated from page',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+    };
+  }
+}
+
 export default {
   getGroupedPermissions,
   getAllPermissions,
@@ -386,4 +439,6 @@ export default {
   getRolePermissions,
   setRolePermissions,
   checkRolePermission,
+  syncPermissionsFromPages,
+  createPermissionFromPage,
 };

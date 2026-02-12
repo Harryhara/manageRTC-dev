@@ -388,6 +388,9 @@ export const all_routes = {
   users: "/users",
   rolePermission: "/roles-permissions",
   permissionpage: "/permission",
+  //SuperAdmin Pages
+  superAdminPages: "/super-admin/pages",
+  modules: "/super-admin/modules",
   assetCategories: "/asset-categories",
   assetList: "/assets",
   //Report

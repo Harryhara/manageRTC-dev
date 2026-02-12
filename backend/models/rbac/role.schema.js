@@ -93,7 +93,13 @@ const roleSchema = new mongoose.Schema({
     permissionId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Permission',
-      required: true
+      required: false // Optional for backward compatibility
+    },
+    // NEW: Direct Page reference for efficient lookups
+    pageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Page',
+      required: false
     },
     module: {
       type: String, // e.g., 'super-admin.dashboard', 'hrm.employees-list'
@@ -151,6 +157,7 @@ roleSchema.index({ level: 1 });
 roleSchema.index({ 'permissions.module': 1 });
 roleSchema.index({ 'permissions.permissionId': 1 });
 roleSchema.index({ 'permissions.category': 1 });
+roleSchema.index({ 'permissions.pageId': 1 }); // NEW: Index for page lookups
 
 // Pre-save middleware
 roleSchema.pre('save', function(next) {
@@ -315,6 +322,137 @@ roleSchema.statics.removePermission = async function(roleId, permissionId) {
   }
 
   return role;
+};
+
+// ============================================
+// NEW METHODS FOR PAGE-BASED PERMISSION CHECKS
+// ============================================
+
+// Static method to check if role has access to a specific page
+roleSchema.statics.hasPageAccess = async function(roleId, pageId, action = 'read') {
+  const role = await this.findById(roleId).select('permissions');
+  if (!role) return false;
+
+  // Check by pageId first (new method)
+  const permByPage = role.permissions.find(p => p.pageId && p.pageId.toString() === pageId.toString());
+  if (permByPage) {
+    if (permByPage.actions.all) return true;
+    return permByPage.actions[action] || false;
+  }
+
+  return false;
+};
+
+// Static method to check by page name (for backward compatibility)
+roleSchema.statics.hasPermissionByPageName = async function(roleId, pageName, action = 'read') {
+  const role = await this.findById(roleId).select('permissions');
+  if (!role) return false;
+
+  const perm = role.permissions.find(p => p.module === pageName);
+  if (!perm) return false;
+
+  if (perm.actions.all) return true;
+  return perm.actions[action] || false;
+};
+
+// Static method to get all accessible pages for a role
+roleSchema.statics.getAccessiblePages = async function(roleId) {
+  const role = await this.findById(roleId)
+    .select('permissions')
+    .populate('permissions.pageId');
+
+  if (!role) return [];
+
+  return role.permissions
+    .filter(p => p.pageId || p.module)
+    .map(p => ({
+      pageId: p.pageId?._id || p.permissionId,
+      module: p.module,
+      displayName: p.displayName,
+      category: p.category,
+      route: p.pageId?.route || null,
+      actions: p.actions,
+    }));
+};
+
+// Static method to get permissions with populated page data
+roleSchema.statics.getPermissionsWithPages = async function(roleId) {
+  const role = await this.findById(roleId)
+    .populate('permissions.permissionId')
+    .populate('permissions.pageId');
+
+  if (!role) return { flat: [], grouped: [] };
+
+  const flat = role.permissions.map(p => ({
+    permissionId: p.permissionId,
+    pageId: p.pageId?._id || p.pageId,
+    module: p.module,
+    displayName: p.displayName,
+    category: p.category,
+    route: p.pageId?.route || null,
+    actions: p.actions,
+  }));
+
+  const grouped = flat.reduce((acc, perm) => {
+    if (!acc[perm.category]) {
+      acc[perm.category] = [];
+    }
+    acc[perm.category].push(perm);
+    return acc;
+  }, {});
+
+  return {
+    flat,
+    grouped: Object.entries(grouped).map(([category, permissions]) => ({
+      category,
+      permissions
+    }))
+  };
+};
+
+// Static method to sync role permissions with updated permission data
+roleSchema.statics.syncPermissionsFromPages = async function() {
+  const Permission = mongoose.model('Permission');
+  const Page = mongoose.model('Page');
+  const roles = await this.find({ isActive: true, isDeleted: false });
+  const results = { updated: 0, skipped: 0, errors: [] };
+
+  for (const role of roles) {
+    try {
+      let hasChanges = false;
+
+      for (const perm of role.permissions) {
+        // If permission has permissionId but no pageId, try to get pageId
+        if (perm.permissionId && !perm.pageId) {
+          const permission = await Permission.findById(perm.permissionId);
+          if (permission?.pageId) {
+            perm.pageId = permission.pageId;
+            hasChanges = true;
+          }
+        }
+
+        // If still no pageId but has module name, try to find page directly
+        if (!perm.pageId && perm.module) {
+          const page = await Page.findOne({ name: perm.module });
+          if (page) {
+            perm.pageId = page._id;
+            hasChanges = true;
+          }
+        }
+      }
+
+      if (hasChanges) {
+        await role.save();
+        results.updated++;
+      } else {
+        results.skipped++;
+      }
+    } catch (error) {
+      results.errors.push({ roleId: role._id, error: error.message });
+    }
+  }
+
+  return results;
 };
 
 export default mongoose.models.Role || mongoose.model('Role', roleSchema);

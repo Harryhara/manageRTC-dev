@@ -5,7 +5,7 @@ import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
 
 // API Base URL
-const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
 // Types
 interface ModulePage {
@@ -64,9 +64,22 @@ const ACCESS_LEVEL_LABELS: Record<string, string> = {
 };
 
 const MODULE_CATEGORY_LABELS: Record<string, string> = {
+  'super-admin': 'Super Admin',
+  'users-permissions': 'Users & Permissions',
+  'applications': 'Applications',
   'hrm': 'HRM',
   'projects': 'Projects',
   'crm': 'CRM',
+  'recruitment': 'Recruitment',
+  'finance': 'Finance & Accounts',
+  'administration': 'Administration',
+  'content': 'Content',
+  'pages': 'Pages',
+  'auth': 'Authentication',
+  'ui': 'UI Interface',
+  'extras': 'Extras',
+  'dashboards': 'Dashboards',
+  'reports': 'Reports',
 };
 
 // Only allow these modules to be displayed/managed
@@ -86,6 +99,7 @@ const Modules = () => {
 
   // Page configuration state
   const [modulePages, setModulePages] = useState<ModulePage[]>([]);
+  const [expandedPageCategories, setExpandedPageCategories] = useState<Set<string>>(new Set());
 
   // Filter state
   const [searchTerm, setSearchTerm] = useState('');
@@ -247,11 +261,62 @@ const Modules = () => {
   };
 
   // Handle open page configuration modal
-  const handleOpenPageModal = async (module: Module) => {
+  const handleOpenPageModal = (module: Module) => {
     setSelectedModule(module);
     setModulePages(module.pages || []);
     setShowPageModal(true);
   };
+
+  // Expand all categories when modal opens and allPages is available
+  useEffect(() => {
+    if (showPageModal && allPages.length > 0) {
+      const categories = Array.from(new Set(allPages.map(p => p.moduleCategory)));
+      setExpandedPageCategories(new Set(categories));
+    }
+  }, [showPageModal, allPages]);
+
+  // Toggle page category expansion
+  const togglePageCategory = (category: string) => {
+    const newExpanded = new Set(expandedPageCategories);
+    if (newExpanded.has(category)) {
+      newExpanded.delete(category);
+    } else {
+      newExpanded.add(category);
+    }
+    setExpandedPageCategories(newExpanded);
+  };
+
+  // Toggle page assignment (add/remove)
+  const handleTogglePageAssignment = async (pageId: string, isCurrentlyAssigned: boolean) => {
+    if (isCurrentlyAssigned) {
+      await handleRemovePage(pageId);
+    } else {
+      await handleAddPage(pageId);
+    }
+  };
+
+  // Group pages by category
+  const groupedPages = React.useMemo(() => {
+    const groups: { category: string; pages: Page[] }[] = [];
+    const categoryMap = new Map<string, Page[]>();
+
+    allPages.forEach(page => {
+      const category = page.moduleCategory || 'uncategorized';
+      if (!categoryMap.has(category)) {
+        categoryMap.set(category, []);
+      }
+      categoryMap.get(category)!.push(page);
+    });
+
+    categoryMap.forEach((pages, category) => {
+      // Sort pages by sortOrder within each category
+      const sortedPages = [...pages].sort((a, b) => a.sortOrder - b.sortOrder);
+      groups.push({ category, pages: sortedPages });
+    });
+
+    // Sort categories alphabetically
+    return groups.sort((a, b) => a.category.localeCompare(b.category));
+  }, [allPages]);
 
   // Handle add page to module
   const handleAddPage = async (pageId: string) => {
@@ -326,7 +391,7 @@ const Modules = () => {
 
   // Handle delete module
   const handleDeleteModule = async (moduleId: string) => {
-    if (!confirm('Are you sure you want to delete this module? This will also remove all associated pages.')) return;
+    if (!window.confirm('Are you sure you want to delete this module? This will also remove all associated pages.')) return;
     try {
       setSaving(true);
       const response = await fetch(`${API_BASE}/api/rbac/modules/${moduleId}`, {
@@ -533,7 +598,7 @@ const Modules = () => {
                             onClick={() => handleOpenPageModal(module)}
                           >
                             <i className="ti ti-file me-1"></i>
-                            {module.activePageCount || 0}/{module.pageCount || 0} Pages
+                            {module.activePageCount || 0}/{module.pages?.length || 0} Pages
                           </button>
                         </td>
                         <td>
@@ -778,95 +843,110 @@ const Modules = () => {
                   <div className="card-header d-flex justify-content-between align-items-center">
                     <h6 className="mb-0">
                       <i className="ti ti-file me-2"></i>
-                      All Pages
+                      Module Pages Configuration
                     </h6>
-                    {saving && (
-                      <span className="badge bg-warning">
-                        <i className="ti ti-loader me-1"></i>Saving...
+                    <div className="d-flex align-items-center gap-3">
+                      <span className="text-muted small">
+                        {modulePages.length} of {allPages.length} assigned
                       </span>
-                    )}
+                      {saving && (
+                        <span className="badge bg-warning">
+                          <i className="ti ti-loader me-1"></i>Saving...
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div className="card-body p-0" style={{ maxHeight: '500px', overflowY: 'auto' }}>
                     <div className="table-responsive">
                       <table className="table table-bordered mb-0">
                         <thead className="table-light">
                           <tr>
-                            <th style={{ width: '5%' }}>Icon</th>
-                            <th style={{ width: '25%' }}>Page Name</th>
-                            <th style={{ width: '20%' }}>Route</th>
-                            <th style={{ width: '15%' }}>Category</th>
-                            <th className="text-center" style={{ width: '15%' }}>
+                            <th style={{ width: '35%' }}>Page Name</th>
+                            <th style={{ width: '25%' }}>Route</th>
+                            <th className="text-center" style={{ width: '20%' }}>
                               <i className="ti ti-check me-1"></i>Assigned
                             </th>
-                            <th className="text-center" style={{ width: '15%' }}>
+                            <th className="text-center" style={{ width: '20%' }}>
                               <i className="ti ti-power me-1"></i>Active
                             </th>
-                            <th style={{ width: '5%' }}></th>
                           </tr>
                         </thead>
                         <tbody>
-                          {[...allPages].sort((a, b) => {
-                            const aInModule = modulePages.some(mp => mp.pageId === a._id);
-                            const bInModule = modulePages.some(mp => mp.pageId === b._id);
-                            if (aInModule && !bInModule) return -1;
-                            if (!aInModule && bInModule) return 1;
-                            return a.displayName.localeCompare(b.displayName);
-                          }).map(page => {
-                            const modulePage = modulePages.find(mp => mp.pageId === page._id);
-                            const isAssigned = !!modulePage;
-                            const isActive = modulePage?.isActive ?? false;
-                            return (
-                              <tr
-                                key={page._id}
-                                className={isAssigned ? '' : 'table-light'}
-                              >
-                                <td className="text-center">
-                                  <i className={page.icon}></i>
+                          {groupedPages.map(group => (
+                            <React.Fragment key={group.category}>
+                              {/* Category Header Row */}
+                              <tr className="table-light">
+                                <td colSpan={4}>
+                                  <button
+                                    className="btn btn-link text-decoration-none p-0 fw-bold"
+                                    onClick={() => togglePageCategory(group.category)}
+                                  >
+                                    <i className={`ti ti-chevron-${expandedPageCategories.has(group.category) ? 'down' : 'right'} me-1`}></i>
+                                    {MODULE_CATEGORY_LABELS[group.category] || group.category.replace('-', ' ').toUpperCase()}
+                                    <span className="badge bg-secondary ms-2">
+                                      {modulePages.filter(mp => {
+                                        const mpPageId = typeof mp.pageId === 'object' && mp.pageId !== null
+                                          ? (mp.pageId as any)._id
+                                          : mp.pageId;
+                                        return group.pages.some(p => String(p._id) === String(mpPageId));
+                                      }).length}/{group.pages.length}
+                                    </span>
+                                  </button>
                                 </td>
-                                <td>
-                                  <div className="fw-medium">{page.displayName}</div>
-                                  <small className="text-muted">{page.name}</small>
-                                </td>
-                                <td>
-                                  <code className="small">{page.route}</code>
-                                </td>
-                                <td>
-                                  <span className="badge bg-light text-dark">
-                                    {MODULE_CATEGORY_LABELS[page.moduleCategory] || page.moduleCategory}
-                                  </span>
-                                </td>
-                                <td className="text-center">
-                                  <div className="form-check form-check-md d-flex justify-content-center">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                      checked={isAssigned}
-                                      onChange={() => {
-                                        if (isAssigned) {
-                                          handleRemovePage(page._id);
-                                        } else {
-                                          handleAddPage(page._id);
-                                        }
-                                      }}
-                                      disabled={saving}
-                                    />
-                                  </div>
-                                </td>
-                                <td className="text-center">
-                                  <div className="form-check form-check-md d-flex justify-content-center">
-                                    <input
-                                      className="form-check-input"
-                                      type="checkbox"
-                                      checked={isActive}
-                                      onChange={() => handleTogglePage(page._id)}
-                                      disabled={saving || !isAssigned}
-                                    />
-                                  </div>
-                                </td>
-                                <td></td>
                               </tr>
-                            );
-                          })}
+                              {/* Pages in this category */}
+                              {expandedPageCategories.has(group.category) && group.pages.map(page => {
+                                // Handle populated pageId (object with _id) vs string
+                                const modulePage = modulePages.find(mp => {
+                                  const mpPageId = typeof mp.pageId === 'object' && mp.pageId !== null
+                                    ? (mp.pageId as any)._id
+                                    : mp.pageId;
+                                  return String(mpPageId) === String(page._id);
+                                });
+                                const isAssigned = !!modulePage;
+                                const isActive = modulePage?.isActive ?? false;
+                                return (
+                                  <tr key={page._id} className={isAssigned ? '' : 'table-light'}>
+                                    <td>
+                                      <div className="d-flex align-items-center">
+                                        <i className={`${page.icon} me-2 text-muted`}></i>
+                                        <div>
+                                          <span className="text-gray-9">{page.displayName}</span>
+                                          <br />
+                                          <small className="text-muted">{page.name}</small>
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td>
+                                      <code className="small">{page.route}</code>
+                                    </td>
+                                    <td className="text-center">
+                                      <div className="form-check form-check-md d-flex justify-content-center">
+                                        <input
+                                          className="form-check-input"
+                                          type="checkbox"
+                                          checked={isAssigned}
+                                          onChange={() => handleTogglePageAssignment(page._id, isAssigned)}
+                                          disabled={saving}
+                                        />
+                                      </div>
+                                    </td>
+                                    <td className="text-center">
+                                      <div className="form-check form-check-md d-flex justify-content-center">
+                                        <input
+                                          className="form-check-input"
+                                          type="checkbox"
+                                          checked={isActive}
+                                          onChange={() => handleTogglePage(page._id)}
+                                          disabled={saving || !isAssigned}
+                                        />
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </React.Fragment>
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -880,12 +960,6 @@ const Modules = () => {
                 </div>
               </div>
               <div className="modal-footer">
-                <div className="me-auto">
-                  <span className="text-muted">
-                    <i className="ti ti-info-circle me-1"></i>
-                    {modulePages.length} of {allPages.length} pages assigned
-                  </span>
-                </div>
                 <button
                   type="button"
                   className="btn btn-secondary"

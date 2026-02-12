@@ -9,7 +9,7 @@ import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
 
 // API Base URL
-const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
 interface User {
   _id: string;

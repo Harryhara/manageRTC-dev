@@ -5,7 +5,7 @@ import CollapseHeader from "../../core/common/collapse-header/collapse-header";
 import Footer from "../../core/common/footer";
 
 // API Base URL
-const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:3001';
+const API_BASE = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
 
 // Types
 interface PermissionAction {
@@ -16,19 +16,29 @@ interface PermissionAction {
   delete: boolean;
   import: boolean;
   export: boolean;
+  approve?: boolean;
+  assign?: boolean;
 }
 
 interface RolePermission {
   permissionId: string;
+  pageId?: string | null;  // NEW: Page reference for new RBAC structure
   module: string;
   displayName: string;
   category: string;
+  route?: string | null;   // NEW: Route from linked page
   actions: PermissionAction;
 }
 
 interface GroupedPermissions {
   category: string;
   permissions: RolePermission[];
+}
+
+// Interface for assigned permission data stored in map
+interface AssignedPermissionData {
+  actions: PermissionAction;
+  pageId?: string | null;
 }
 
 const ACTIONS = ['all', 'read', 'create', 'write', 'delete', 'import', 'export'] as const;
@@ -120,14 +130,17 @@ const PermissionPage = () => {
 
       if (data.success) {
         // Create a map of assigned permissions for quick lookup
-        const assignedPermsMap = new Map<string, PermissionAction>();
+        const assignedPermsMap = new Map<string, AssignedPermissionData>();
 
         if (data.data.flat && data.data.flat.length > 0) {
           // Role has embedded permissions
           data.data.flat.forEach((perm: any) => {
             // Handle both ObjectId and string permissionId
             const permId = typeof perm.permissionId === 'object' ? perm.permissionId._id || perm.permissionId.toString() : perm.permissionId;
-            assignedPermsMap.set(permId, perm.actions);
+            assignedPermsMap.set(permId, {
+              actions: perm.actions,
+              pageId: perm.pageId,  // NEW: Include pageId
+            });
           });
         }
 
@@ -137,10 +150,11 @@ const PermissionPage = () => {
           permissions: group.permissions.map(perm => {
             // Handle both ObjectId and string permissionId
             const permId = perm.permissionId ? (typeof perm.permissionId === 'object' ? (perm.permissionId as any)._id || String(perm.permissionId) : perm.permissionId) : '';
-            const assignedActions = assignedPermsMap.get(permId);
+            const assignedData = assignedPermsMap.get(permId);
             return {
               ...perm,
-              actions: assignedActions || { ...EMPTY_ACTIONS },
+              actions: assignedData?.actions || { ...EMPTY_ACTIONS },
+              pageId: assignedData?.pageId || perm.pageId,  // NEW: Include pageId
             };
           }),
         }));

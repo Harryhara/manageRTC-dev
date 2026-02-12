@@ -2,6 +2,7 @@ import { config } from 'dotenv';
 config();
 
 import { clerkClient } from '@clerk/clerk-sdk-node';
+import compression from 'compression';
 import cors from 'cors';
 import express from 'express';
 import fs from 'fs';
@@ -64,7 +65,10 @@ import syncRoleRoutes from "./routes/api/syncRole.routes.js";
 import rbacRolesRoutes from "./routes/api/rbac/roles.js";
 import rbacPermissionsRoutes from "./routes/api/rbac/permissions.js";
 import rbacModulesRoutes from "./routes/api/rbac/modules.js";
+import rbacPagesRoutes from "./routes/api/rbac/pages.js";
 import adminUsersRoutes from "./routes/api/admin.users.js";
+import superadminCompaniesRoutes from "./routes/api/superadmin.companies.js";
+import debugRoutes from "./routes/debug/auth-debug.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -98,6 +102,9 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
   })
 );
+
+// Compress all responses
+app.use(compression());
 
 app.use(express.json());
 
@@ -216,10 +223,19 @@ const initializeServer = async () => {
     app.use("/api/rbac/roles", rbacRolesRoutes);
     app.use("/api/rbac/permissions", rbacPermissionsRoutes);
     app.use("/api/rbac/modules", rbacModulesRoutes);
+    app.use("/api/rbac/pages", rbacPagesRoutes);
     app.use("/api/admin/users", adminUsersRoutes);
+
+    // Superadmin Routes
+    app.use("/api/superadmin", superadminCompaniesRoutes);
 
     // Clerk Webhooks
     app.use("/api/webhooks", clerkWebhookRoutes);
+
+    // Debug Routes (Development only)
+    if (process.env.NODE_ENV !== 'production') {
+      app.use("/api/debug", debugRoutes);
+    }
 
     // Health Check Routes
     app.use("/health", healthRoutes);
