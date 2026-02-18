@@ -8,10 +8,9 @@ on:
       - ".github/workflows/deploy-frontend.yml"
   workflow_dispatch:
 
-env:
-  DEPLOY_PATH: /var/www/dev.manage-rtc.com/frontend
-  BACKUP_PATH: /home/deploy/backups
-  FRONTEND_URL: https://dev.manage-rtc.com
+# All environment-specific values come from GitHub Repository Variables (vars.X).
+# This file is identical in both manageRTC-dev and manageRTC-acc.
+# Each repo sets its own variable values — no hardcoded paths, no detection logic.
 
 jobs:
   build-and-deploy:
@@ -32,9 +31,9 @@ jobs:
 
       - name: Write .env.production
         run: |
-          cat > .env.production << 'EOF'
+          cat > .env.production << EOF
           REACT_APP_CLERK_PUBLISHABLE_KEY=${{ secrets.CLERK_PUBLISHABLE_KEY_PUBLIC }}
-          REACT_APP_BACKEND_URL=https://apidev.manage-rtc.com
+          REACT_APP_BACKEND_URL=${{ vars.BACKEND_API_URL }}
           EOF
 
       - name: Install & build
@@ -51,87 +50,90 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "react/build/**"
-          target: "/home/${{ secrets.VPS_USER }}/frontend_release/"
+          target: "/home/${{ secrets.VPS_USER }}/${{ vars.FRONTEND_STAGING_DIR }}/"
           strip_components: 1
 
       - name: Backup current deployment
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ vars.FRONTEND_DEPLOY_PATH }}
+          BACKUP_PREFIX: ${{ vars.BACKUP_PREFIX_FE }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_PATH,BACKUP_PREFIX
           script: |
             set -e
             mkdir -p ~/backups
             TIMESTAMP=$(date +%Y%m%d-%H%M%S)
-            if [ -d "/var/www/dev.manage-rtc.com/frontend" ]; then
-              echo "Creating backup: frontend-$TIMESTAMP.tar.gz"
-              tar -czf ~/backups/frontend-$TIMESTAMP.tar.gz \
-                -C /var/www/dev.manage-rtc.com/frontend \
-                .
-              # Keep only last 5 backups
-              ls -t ~/backups/frontend-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
-              echo "Backup completed. Current backups:"
-              ls -la ~/backups/frontend-*.tar.gz 2>/dev/null || echo "No backups found"
+            if [ -d "$DEPLOY_PATH" ] && [ "$(ls -A $DEPLOY_PATH 2>/dev/null)" ]; then
+              echo "Creating backup: $BACKUP_PREFIX-$TIMESTAMP.tar.gz"
+              tar -czf ~/backups/$BACKUP_PREFIX-$TIMESTAMP.tar.gz -C $DEPLOY_PATH .
+              ls -t ~/backups/$BACKUP_PREFIX-*.tar.gz 2>/dev/null | tail -n +6 | xargs -r rm -f
+              echo "Backup completed."
+              ls -la ~/backups/$BACKUP_PREFIX-*.tar.gz 2>/dev/null
             else
               echo "No existing deployment to backup"
             fi
 
-      - name: Activate on VPS (/var/www/dev.manage-rtc.com/frontend)
+      - name: Activate on VPS
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ vars.FRONTEND_DEPLOY_PATH }}
+          STAGING_DIR: ${{ vars.FRONTEND_STAGING_DIR }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_PATH,STAGING_DIR
           script: |
             set -e
-            mkdir -p /var/www/dev.manage-rtc.com/frontend
-            rm -rf /var/www/dev.manage-rtc.com/frontend/*
-            # copy the CONTENTS of build/ so index.html is at the root
-            cp -r ~/frontend_release/build/* /var/www/dev.manage-rtc.com/frontend/
-            find /var/www/dev.manage-rtc.com/frontend -type f -name "*.map" -delete
+            mkdir -p $DEPLOY_PATH
+            rm -rf $DEPLOY_PATH/*
+            cp -r ~/$STAGING_DIR/build/* $DEPLOY_PATH/
+            find $DEPLOY_PATH -type f -name "*.map" -delete
             sudo systemctl reload nginx
 
       - name: Health check
         uses: appleboy/ssh-action@v1.0.3
+        env:
+          DEPLOY_PATH: ${{ vars.FRONTEND_DEPLOY_PATH }}
+          FRONTEND_URL: ${{ vars.FRONTEND_URL }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          envs: DEPLOY_PATH,FRONTEND_URL
           script: |
             set -e
             echo "Running frontend health check..."
 
-            # Check nginx is running
             if ! systemctl is-active --quiet nginx; then
               echo "ERROR: nginx is not running!"
               sudo systemctl status nginx
               exit 1
             fi
 
-            # Check if index.html exists
-            if [ ! -f "/var/www/dev.manage-rtc.com/frontend/index.html" ]; then
-              echo "ERROR: index.html not found in deployment directory!"
-              ls -la /var/www/dev.manage-rtc.com/frontend/
+            if [ ! -f "$DEPLOY_PATH/index.html" ]; then
+              echo "ERROR: index.html not found at $DEPLOY_PATH"
+              ls -la $DEPLOY_PATH/
               exit 1
             fi
 
-            # HTTP health check (with retry)
             MAX_RETRIES=3
             RETRY_COUNT=0
             while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
               HTTP_CODE=$(curl -sf -o /dev/null -w "%{http_code}" http://localhost:80/)
               if echo "$HTTP_CODE" | grep -qE "^(200|301|302|304)$"; then
-                echo "Health check passed! HTTP status: $HTTP_CODE"
-                echo "Frontend successfully deployed at: https://dev.manage-rtc.com"
+                echo "Health check passed! Frontend deployed at: $FRONTEND_URL"
                 exit 0
               fi
               RETRY_COUNT=$((RETRY_COUNT + 1))
-              echo "Health check attempt $RETRY_COUNT failed (HTTP: $HTTP_CODE), retrying..."
+              echo "Attempt $RETRY_COUNT failed (HTTP: $HTTP_CODE), retrying..."
               sleep 3
             done
 
-            echo "WARNING: Health check did not return expected status after $MAX_RETRIES attempts"
-            echo "Checking nginx error logs..."
+            echo "WARNING: Health check did not pass after $MAX_RETRIES attempts"
             sudo tail -n 20 /var/log/nginx/error.log
             exit 1
