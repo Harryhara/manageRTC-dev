@@ -172,6 +172,8 @@ export const getTenantCollections = (tenantDbName) => {
     trainings: db.collection('trainings'),
     // Sub-contracts
     subcontracts: db.collection('subcontracts'),
+    // Project contracts (worker assignments)
+    projectcontracts: db.collection('projectcontracts'),
   };
 };
 

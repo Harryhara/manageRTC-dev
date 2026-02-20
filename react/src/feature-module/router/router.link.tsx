@@ -199,6 +199,8 @@ import PerformanceIndicator from '../performance/performanceIndicator';
 import PerformanceReview from '../performance/performanceReview';
 import ClientDetails from '../projects/client/clientdetails';
 import ClientList from '../projects/client/clientlist';
+import ContractDetails from '../projects/contract/contractdetails';
+import ContractList from '../projects/contract/contractlist';
 import Project from '../projects/project/project';
 import ProjectDetails from '../projects/project/projectdetails';
 import SubContractList from '../projects/subcontract/subcontractlist';
@@ -1639,6 +1641,18 @@ export const publicRoutes = [
     element: <ClientDetails />,
     route: Route,
     roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
+  },
+  {
+    path: routes.contractlist,
+    element: <ContractList />,
+    route: Route,
+    roles: ['admin', 'hr', 'superadmin'],
+  },
+  {
+    path: routes.contractdetails,
+    element: <ContractDetails />,
+    route: Route,
+    roles: ['admin', 'hr', 'superadmin'],
   },
   {
     path: routes.subcontractlist,
