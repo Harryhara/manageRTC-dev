@@ -316,6 +316,8 @@ export const all_routes = {
   clientgrid: '/clients-grid',
   clientlist: '/clients',
   clientdetils: '/clients-details/:clientId',
+  contractlist: '/contracts',
+  contractdetails: '/contract-details/:contractId/:projectId',
   subcontractlist: '/sub-contracts',
   project: '/projects-grid',
   projectlist: '/projects',
