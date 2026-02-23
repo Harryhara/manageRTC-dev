@@ -34,10 +34,9 @@ jobs:
 
       - name: Write .env.production
         run: |
-          cat > .env.production << EOF
-          REACT_APP_CLERK_PUBLISHABLE_KEY=${{ secrets.CLERK_PUBLISHABLE_KEY_PUBLIC }}
-          REACT_APP_BACKEND_URL=${{ env.BACKEND_API_URL }}
-          EOF
+          printf 'REACT_APP_CLERK_PUBLISHABLE_KEY=%s\nREACT_APP_BACKEND_URL=%s\n' \
+            "${{ secrets.CLERK_PUBLISHABLE_KEY_PUBLIC }}" \
+            "${{ env.BACKEND_API_URL }}" > .env.production
 
       - name: Install & build
         env:
