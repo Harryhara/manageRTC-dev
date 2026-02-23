@@ -9,10 +9,10 @@ on:
   workflow_dispatch:
 
 env:
-  FRONTEND_DEPLOY_PATH: /var/www/acc.manage-rtc.com/frontend
+  FRONTEND_DEPLOY_PATH: /var/www/acceptance.manage-rtc.com/frontend
   FRONTEND_STAGING_DIR: frontend_release_acc
   BACKEND_API_URL: https://apiacc.manage-rtc.com
-  FRONTEND_URL: https://acc.manage-rtc.com
+  FRONTEND_URL: https://acceptance.manage-rtc.com
   BACKUP_PREFIX_FE: frontend-acc
 
 jobs:

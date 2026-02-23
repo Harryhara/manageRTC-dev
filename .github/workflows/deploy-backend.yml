@@ -12,7 +12,7 @@ env:
   BACKEND_DEPLOY_PATH: /var/www/apiacc.manage-rtc.com/backend
   BACKEND_STAGING_DIR: releases/backend-acc
   PM2_APP_NAME: manage-rtc-api-acc
-  FRONTEND_URL: https://acc.manage-rtc.com
+  FRONTEND_URL: https://acceptance.manage-rtc.com
   BACKUP_PREFIX_BE: backend-acc
 
 jobs:
