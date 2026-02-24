@@ -108,6 +108,7 @@ jobs:
             # FRONTEND_URL comes from SSH envs (shell variable, not a GA expression).
             echo "PORT=${{ secrets.ENV_PORT }}"                          >  .env
             echo "MONGO_URI=${{ secrets.ENV_MONGO_URI }}"               >> .env
+            echo "MONGODB_URI=${{ secrets.ENV_MONGO_URI }}"             >> .env
             echo "CLERK_SECRET_KEY=${{ secrets.ENV_CLERK_SECRET_KEY }}" >> .env
             echo "CLERK_JWT_KEY=${{ secrets.ENV_CLERK_JWT_KEY }}"       >> .env
             echo "CLERK_PUBLISHABLE_KEY=${{ secrets.ENV_CLERK_PUBLISHABLE_KEY }}" >> .env

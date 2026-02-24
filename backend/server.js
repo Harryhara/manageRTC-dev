@@ -1,5 +1,4 @@
-import { config } from 'dotenv';
-config();
+import 'dotenv/config';
 
 import { clerkClient } from '@clerk/clerk-sdk-node';
 import compression from 'compression';
