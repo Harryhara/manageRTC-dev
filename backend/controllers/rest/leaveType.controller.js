@@ -21,6 +21,9 @@ import {
 } from '../../utils/apiResponse.js';
 import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
 
+/** Escape special regex characters to prevent ReDoS via user-supplied search strings */
+const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 /**
  * @desc    Get all leave types with pagination and filtering
  * @route   GET /api/leave-types
@@ -39,7 +42,7 @@ export const getLeaveTypes = asyncHandler(async (req, res) => {
   // Build filter - always exclude soft-deleted records
   let filter = {
     companyId: user.companyId,
-    isDeleted: false
+    isDeleted: { $ne: true }
   };
 
   // Apply status filter (isActive)
@@ -49,12 +52,13 @@ export const getLeaveTypes = asyncHandler(async (req, res) => {
     filter.isActive = false;
   }
 
-  // Apply search filter
+  // Apply search filter (escape input to prevent ReDoS)
   if (search && search.trim()) {
+    const safeSearch = escapeRegex(search.trim());
     filter.$or = [
-      { name: { $regex: search, $options: 'i' } },
-      { code: { $regex: search, $options: 'i' } },
-      { description: { $regex: search, $options: 'i' } }
+      { name: { $regex: safeSearch, $options: 'i' } },
+      { code: { $regex: safeSearch, $options: 'i' } },
+      { description: { $regex: safeSearch, $options: 'i' } }
     ];
   }
 
@@ -69,7 +73,7 @@ export const getLeaveTypes = asyncHandler(async (req, res) => {
 
   // Get paginated results
   const pageNum = parseInt(page) || 1;
-  const limitNum = parseInt(limit) || 20;
+  const limitNum = Math.min(parseInt(limit) || 20, 200);
   const skip = (pageNum - 1) * limitNum;
 
   const leaveTypesData = await leaveTypes
@@ -104,7 +108,7 @@ export const getLeaveTypeById = asyncHandler(async (req, res) => {
   const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
   if (!leaveType) {
@@ -131,13 +135,15 @@ export const getActiveLeaveTypes = asyncHandler(async (req, res) => {
   const leaveTypesData = await leaveTypes.find({
     companyId: user.companyId,
     isActive: true,
-    isDeleted: false
+    isDeleted: { $ne: true }
   }).toArray();
 
   // Transform to a simpler format for dropdowns
+  // Use _id as value for ObjectId-based system, include code for backward compatibility
   const dropdownData = leaveTypesData.map(lt => ({
-    value: lt.code,
-    label: lt.name,
+    value: lt._id.toString(),  // ObjectId as string
+    label: lt.name,             // Display name (e.g., "Annual Leave")
+    code: lt.code,              // Backend code (e.g., "EARNED") - for backward compatibility
     color: lt.color,
     icon: lt.icon,
     requiresApproval: lt.requiresApproval,
@@ -174,7 +180,7 @@ export const createLeaveType = asyncHandler(async (req, res) => {
   const existingByCode = await leaveTypes.findOne({
     companyId: user.companyId,
     code: leaveTypeData.code.toUpperCase(),
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
   if (existingByCode) {
@@ -185,7 +191,7 @@ export const createLeaveType = asyncHandler(async (req, res) => {
   const existingByName = await leaveTypes.findOne({
     companyId: user.companyId,
     name: leaveTypeData.name.trim(),
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
   if (existingByName) {
@@ -229,7 +235,7 @@ export const createLeaveType = asyncHandler(async (req, res) => {
     description: leaveTypeData.description || '',
     // System fields
     isActive: leaveTypeData.isActive !== undefined ? leaveTypeData.isActive : true,
-    isDeleted: false,
+    isDeleted: { $ne: true },
     createdAt: now,
     updatedAt: now
   };
@@ -259,7 +265,7 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
   const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
   if (!leaveType) {
@@ -271,7 +277,7 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
     const existingByCode = await leaveTypes.findOne({
       companyId: user.companyId,
       code: updateData.code.toUpperCase(),
-      isDeleted: false,
+      isDeleted: { $ne: true },
       leaveTypeId: { $ne: id }
     });
 
@@ -285,7 +291,7 @@ export const updateLeaveType = asyncHandler(async (req, res) => {
     const existingByName = await leaveTypes.findOne({
       companyId: user.companyId,
       name: updateData.name.trim(),
-      isDeleted: false,
+      isDeleted: { $ne: true },
       leaveTypeId: { $ne: id }
     });
 
@@ -353,7 +359,7 @@ export const toggleLeaveTypeStatus = asyncHandler(async (req, res) => {
   const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
   if (!leaveType) {
@@ -400,7 +406,7 @@ export const deleteLeaveType = asyncHandler(async (req, res) => {
   const leaveType = await leaveTypes.findOne({
     leaveTypeId: id,
     companyId: user.companyId,
-    isDeleted: false
+    isDeleted: { $ne: true }
   });
 
   if (!leaveType) {
@@ -439,7 +445,7 @@ export const getLeaveTypeStats = asyncHandler(async (req, res) => {
 
   const allTypes = await leaveTypes.find({
     companyId: user.companyId,
-    isDeleted: false
+    isDeleted: { $ne: true }
   }).toArray();
 
   const stats = {

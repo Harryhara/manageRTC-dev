@@ -7,8 +7,10 @@ import CommonSelect from "../../../../core/common/commonSelect";
 import Table from "../../../../core/common/dataTable/index";
 import PredefinedDateRanges from "../../../../core/common/datePicker";
 import Footer from "../../../../core/common/footer";
-import { statusDisplayMap, useLeaveREST, type LeaveBalance, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
+import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
+import { statusDisplayMap, useLeaveREST, type LeaveBalance, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
+import { useSocket } from "../../../../SocketContext";
 import { all_routes } from "../../../router/all_routes";
 
 // Loading spinner component
@@ -46,25 +48,6 @@ const StatusBadge = ({ status }: { status: LeaveStatus }) => {
   );
 };
 
-// Leave type badge component
-const LeaveTypeBadge = ({ leaveType, leaveTypeDisplayMap }: { leaveType: string; leaveTypeDisplayMap: Record<string, string> }) => {
-  const displayType = leaveTypeDisplayMap[leaveType] || leaveType;
-  return (
-    <span className="fs-14 fw-medium d-flex align-items-center">
-      {displayType}
-      <Link
-        to="#"
-        className="ms-2"
-        data-bs-toggle="tooltip"
-        data-bs-placement="right"
-        title="Leave details"
-      >
-        <i className="ti ti-info-circle text-info" />
-      </Link>
-    </span>
-  );
-};
-
 const normalizeDate = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
 
 const toDateValue = (value: any): Date | null => {
@@ -96,6 +79,16 @@ const LeaveEmployee = () => {
   // API hook for employee's leaves
   const { leaves, loading, fetchMyLeaves, cancelLeave, getLeaveBalance, createLeave, updateLeave, leaveTypeDisplayMap } = useLeaveREST();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
+  const socket = useSocket();
+
+  // Auto-reload hook for refetching after actions
+  const { refetchAfterAction } = useAutoReloadActions({
+    fetchFn: () => {
+      fetchMyLeaves();
+      fetchBalanceData();
+    },
+    debug: true,
+  });
 
   // Local state for balance - Initialize with empty state, will be populated from API
   // Backend types: sick, casual, earned, maternity, paternity, bereavement, compensatory, unpaid, special
@@ -184,17 +177,51 @@ const LeaveEmployee = () => {
 
   // Fetch balance data - directly uses backend types (sick, casual, earned, etc.)
   const fetchBalanceData = async () => {
-    const balanceData = await getLeaveBalance();
-    console.log('[fetchBalanceData] API Response:', balanceData);
-    console.log('[fetchBalanceData] Response keys:', balanceData ? Object.keys(balanceData) : 'null');
-    if (balanceData && typeof balanceData === 'object' && 'earned' in balanceData) {
-      console.log('[fetchBalanceData] earned balance:', (balanceData as Record<string, LeaveBalance>).earned);
-    } else {
-      console.log('[fetchBalanceData] earned balance: not available');
-    }
+    try {
+      const balanceData = await getLeaveBalance();
+      console.log('[fetchBalanceData] API Response received, type:', typeof balanceData);
+      console.log('[fetchBalanceData] Response:', balanceData);
 
-    if (balanceData && typeof balanceData === 'object') {
-      console.log('[fetchBalanceData] Setting balances:', balanceData);
+      if (!balanceData) {
+        console.error('[fetchBalanceData] API returned null/undefined');
+        message.error('Failed to load leave balance. Please refresh the page.');
+        return;
+      }
+
+      if (Array.isArray(balanceData)) {
+        console.error('[fetchBalanceData] Received array instead of object:', balanceData);
+        message.error('Invalid balance data format received');
+        return;
+      }
+
+      if (typeof balanceData !== 'object') {
+        console.error('[fetchBalanceData] Received non-object data:', typeof balanceData);
+        message.error('Invalid balance data format received');
+        return;
+      }
+
+      // Log specific balance values for debugging
+      const keys = Object.keys(balanceData);
+      console.log('[fetchBalanceData] Balance keys:', keys);
+
+      if ('earned' in balanceData) {
+        console.log('[fetchBalanceData] earned balance:', balanceData.earned);
+      }
+      if ('sick' in balanceData) {
+        console.log('[fetchBalanceData] sick balance:', balanceData.sick);
+      }
+
+      // Check if data has expected structure
+      const hasValidData = keys.some(key => {
+        const item = balanceData[key];
+        return item && typeof item === 'object' && 'balance' in item;
+      });
+
+      if (!hasValidData) {
+        console.warn('[fetchBalanceData] No valid balance items found');
+      }
+
+      console.log('[fetchBalanceData] Setting balances state with', keys.length, 'items');
       // getLeaveBalance already returns response.data which is the balances object
       setBalances(balanceData as Record<string, {
         total: number;
@@ -204,16 +231,33 @@ const LeaveEmployee = () => {
         customPolicyId?: string;
         customPolicyName?: string;
       }>);
-    } else {
-      console.error('[fetchBalanceData] Invalid balance data received:', balanceData);
+    } catch (error) {
+      console.error('[fetchBalanceData] Error fetching balance:', error);
+      message.error('Failed to fetch leave balance');
     }
   };
+
+  // Re-fetch balance when the manager approves this employee's leave (real-time update)
+  useEffect(() => {
+    if (!socket) return;
+    const handleBalanceRefresh = () => {
+      fetchBalanceData();
+      fetchMyLeaves();
+    };
+    socket.on('leave:balance_updated', handleBalanceRefresh);
+    socket.on('leave:approved', handleBalanceRefresh);
+    return () => {
+      socket.off('leave:balance_updated', handleBalanceRefresh);
+      socket.off('leave:approved', handleBalanceRefresh);
+    };
+  }, [socket]);
 
   // Transform leaves for table display
   const data = leaves.map((leave) => ({
     key: leave._id,
     _id: leave._id,
-    LeaveType: leave.leaveType,
+    LeaveType: leave.leaveType,      // Code for backward compatibility
+    LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
     From: formatDate(leave.startDate),
     To: formatDate(leave.endDate),
     NoOfDays: leave.duration === 0.5 ? 'Half Day (0.5)' : `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
@@ -236,8 +280,7 @@ const LeaveEmployee = () => {
     const reason = prompt("Please enter cancellation reason (optional):");
     const success = await cancelLeave(leaveId, reason || "Cancelled by employee");
     if (success) {
-      fetchMyLeaves(); // Refresh list
-      fetchBalanceData(); // Refresh balance
+      refetchAfterAction(); // Refresh list and balance
     }
   };
 
@@ -254,7 +297,7 @@ const LeaveEmployee = () => {
     if (!addFormData.startDate) errors.startDate = 'From date is required';
     if (!addFormData.endDate) errors.endDate = 'To date is required';
     if (addFormData.startDate && addFormData.endDate &&
-        dayjs(addFormData.endDate).isBefore(dayjs(addFormData.startDate), 'day')) {
+      dayjs(addFormData.endDate).isBefore(dayjs(addFormData.startDate), 'day')) {
       errors.endDate = 'To date must be on or after From date';
     }
     if (!addFormData.session) errors.session = 'Day type is required';
@@ -295,9 +338,8 @@ const LeaveEmployee = () => {
         const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
         if (modal) modal.hide();
       }
-      // Refresh data
-      fetchMyLeaves();
-      fetchBalanceData();
+      // Refresh data using auto-reload
+      refetchAfterAction();
     }
   };
 
@@ -354,17 +396,33 @@ const LeaveEmployee = () => {
         const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
         if (modal) modal.hide();
       }
-      // Refresh data
-      fetchMyLeaves();
-      fetchBalanceData();
+      // Refresh data using auto-reload
+      refetchAfterAction();
     }
   };
   const columns = [
     {
       title: "Leave Type",
       dataIndex: "LeaveType",
-      render: (leaveType: string) => <LeaveTypeBadge leaveType={leaveType} leaveTypeDisplayMap={leaveTypeDisplayMap} />,
-      sorter: (a: any, b: any) => a.LeaveType.length - b.LeaveType.length,
+      render: (leaveType: string, record: any) => {
+        // Use leaveTypeName from backend (ObjectId system) with fallback to map for backward compatibility
+        const displayName = record.LeaveTypeName || leaveTypeDisplayMap[leaveType?.toLowerCase?.()] || leaveType;
+        return (
+          <span className="fs-14 fw-medium d-flex align-items-center">
+            {displayName}
+            <Link
+              to="#"
+              className="ms-2"
+              data-bs-toggle="tooltip"
+              data-bs-placement="right"
+              title="Leave details"
+            >
+              <i className="ti ti-info-circle text-info" />
+            </Link>
+          </span>
+        );
+      },
+      sorter: (a: any, b: any) => (a.LeaveTypeName || '').localeCompare(b.LeaveTypeName || ''),
     },
     {
       title: "Reporting Manager",
@@ -430,13 +488,11 @@ const LeaveEmployee = () => {
     },
   ];
 
-  // Dropdown options with proper backend values
-  const leavetype = [
+  // Dynamic leave type filter options built from active leave types in database
+  const leaveTypeFilterOptions = useMemo(() => [
     { value: "", label: "All Types" },
-    { value: "sick", label: "Medical Leave" },
-    { value: "casual", label: "Casual Leave" },
-    { value: "earned", label: "Annual Leave" },
-  ];
+    ...activeOptions.map(option => ({ value: option.value.toLowerCase(), label: String(option.label) })),
+  ], [activeOptions]);
 
   const statusOptions = [
     { value: "", label: "All Status" },
@@ -453,22 +509,22 @@ const LeaveEmployee = () => {
   ], []);
 
   const leaveTypeOptions = useMemo(() => {
-    const fallbackOptions = Object.entries(leaveTypeDisplayMap).map(([value, label]) => ({ value, label }));
+    // Use activeOptions directly - value is now ObjectId (from backend), label is display name
     const apiOptions = activeOptions.length
-      ? activeOptions.map(option => ({ value: option.value.toLowerCase(), label: String(option.label) }))
-      : fallbackOptions;
+      ? activeOptions.map(option => ({ value: option.value, label: String(option.label) }))
+      : [];
     return [{ value: "", label: "Select Leave Type" }, ...apiOptions];
-  }, [activeOptions, leaveTypeDisplayMap]);
+  }, [activeOptions]);
 
   // Filter handlers
   const handleStatusFilter = (status: LeaveStatus) => {
     // Re-fetch with status filter
-    fetchMyLeaves({ status });
+    fetchMyLeaves({ status }).then(() => fetchBalanceData());
   };
 
-  const handleLeaveTypeFilter = (leaveType: LeaveType) => {
+  const handleLeaveTypeFilter = (leaveType: string) => {
     // Re-fetch with leave type filter
-    fetchMyLeaves({ leaveType });
+    fetchMyLeaves({ leaveType: leaveType as LeaveTypeCode }).then(() => fetchBalanceData());
   };
 
   // Calculate stats from leaves data
@@ -508,7 +564,8 @@ const LeaveEmployee = () => {
 
     // Build config from active leave types from database
     const config = activeOptions.map((option) => {
-      const code = option.value.toLowerCase();
+      // Use option.code (provided by backend) instead of option.value (which is now ObjectId)
+      const code = (option.code || '').toLowerCase();
       const fallback = defaultConfig[code] || {
         label: option.label,
         icon: 'ti ti-calendar',
@@ -526,7 +583,8 @@ const LeaveEmployee = () => {
         badgeClass: fallback.badgeClass,
         // Additional properties from database
         code: code,
-        name: option.label
+        name: option.label,
+        leaveTypeId: option.value // ObjectId for future reference
       };
     });
 
@@ -613,6 +671,11 @@ const LeaveEmployee = () => {
               const hasCustomPolicy = balance?.hasCustomPolicy || false;
               const customPolicyName = balance?.customPolicyName;
 
+              // Debug: Log if balance is undefined or zero unexpectedly
+              if (!balance && config.key) {
+                console.warn(`[LeaveEmployee] No balance data found for "${config.key}". Available keys:`, Object.keys(balances));
+              }
+
               return (
                 <div key={config.key} className="col-xl-3 col-md-6">
                   <div className={`card ${config.cardClass}`}>
@@ -694,14 +757,14 @@ const LeaveEmployee = () => {
                     Leave Type
                   </Link>
                   <ul className="dropdown-menu  dropdown-menu-end p-3">
-                    {leavetype.map((option) => (
+                    {leaveTypeFilterOptions.map((option) => (
                       <li key={option.value}>
                         <Link
                           to="#"
                           className="dropdown-item rounded-1"
                           onClick={(e) => {
                             e.preventDefault();
-                            handleLeaveTypeFilter(option.value as LeaveType);
+                            handleLeaveTypeFilter(option.value);
                           }}
                         >
                           {option.label}
@@ -1307,7 +1370,7 @@ const LeaveEmployee = () => {
                     <div className="border rounded p-3 h-100">
                       <p className="text-muted text-uppercase fs-12 mb-1">Leave Type</p>
                       <div className="fw-semibold mb-3">
-                        {leaveTypeDisplayMap[selectedLeave.leaveType] || selectedLeave.leaveType}
+                        {selectedLeave.leaveTypeName || leaveTypeDisplayMap[selectedLeave.leaveType?.toLowerCase?.()] || selectedLeave.leaveType}
                       </div>
                       <div className="row g-3">
                         <div className="col-6">

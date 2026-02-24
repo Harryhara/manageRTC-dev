@@ -61,11 +61,16 @@ const getLeaveTypeDetailsMap = async (companyId) => {
 
 /**
  * Get the latest ledger entry for an employee + leave type
+ * @param {Collection} leaveLedger - Ledger collection
+ * @param {string} employeeId - Employee ID
+ * @param {string} leaveType - Leave type code
+ * @param {ClientSession} session - Optional MongoDB session for transaction support
  */
-const getLatestEntry = async (leaveLedger, employeeId, leaveType) => {
+const getLatestEntry = async (leaveLedger, employeeId, leaveType, session = null) => {
+  const options = session ? { session } : {};
   const entries = await leaveLedger.find(
     { employeeId, leaveType, isDeleted: { $ne: true } },
-    { sort: { transactionDate: -1 }, limit: 1 }
+    { ...options, sort: { transactionDate: -1 }, limit: 1 }
   ).toArray();
   return entries[0] || null;
 };
@@ -113,7 +118,7 @@ export const getBalanceHistory = async (companyId, employeeId, filters = {}) => 
  */
 export const getBalanceSummary = async (companyId, employeeId) => {
   try {
-    const { leaveLedger, employees, customLeavePolicies } = getTenantCollections(companyId);
+    const { leaveLedger, employees, customLeavePolicies, leaveTypes } = getTenantCollections(companyId);
 
     const employee = await employees.findOne({ employeeId, isDeleted: { $ne: true } });
 
@@ -128,7 +133,8 @@ export const getBalanceSummary = async (companyId, employeeId) => {
       isDeleted: { $ne: true }
     }).toArray();
 
-    // Create a map of leave type code -> custom policy annualQuota for quick lookup
+    // Create a map of leave type code -> custom policy details for quick lookup
+    // Stores: { annualQuota, policyId, policyName }
     const customPolicyQuotaMap = {};
     for (const policy of employeeCustomPolicies) {
       if (policy.leaveTypeId) {
@@ -138,7 +144,12 @@ export const getBalanceSummary = async (companyId, employeeId) => {
           isDeleted: { $ne: true }
         });
         if (leaveType && policy.annualQuota !== undefined) {
-          customPolicyQuotaMap[leaveType.code] = policy.annualQuota;
+          // Convert to lowercase for consistent matching (ledger stores lowercase codes)
+          customPolicyQuotaMap[leaveType.code.toLowerCase()] = {
+            annualQuota: policy.annualQuota,
+            policyId: policy._id?.toString(),
+            policyName: policy.name || 'Custom Policy'
+          };
         }
       }
     }
@@ -155,8 +166,9 @@ export const getBalanceSummary = async (companyId, employeeId) => {
       const employeeBalance = employee?.leaveBalance?.balances?.find(b => b.type === type);
 
       // Check if there's a custom policy for this leave type
-      const hasCustomPolicy = customPolicyQuotaMap[type] !== undefined;
-      const customQuota = customPolicyQuotaMap[type];
+      const customPolicy = customPolicyQuotaMap[type];
+      const hasCustomPolicy = customPolicy !== undefined;
+      const customQuota = customPolicy?.annualQuota;
 
       // Use custom policy annualQuota if available, otherwise use company's annualQuota
       const defaultQuota = leaveTypeDetails?.annualQuota || 0;
@@ -164,7 +176,10 @@ export const getBalanceSummary = async (companyId, employeeId) => {
       // PRIORITIZE LEDGER: Use ledger balance if available, otherwise fall back to employee balance
       // The ledger is the single source of truth for current balance
       const baseBalance = latestEntry ? latestEntry.balanceAfter : null;
-      const total = hasCustomPolicy ? customQuota : (baseBalance ?? employeeBalance?.total ?? defaultQuota);
+
+      // total = annual quota (custom policy quota OR default quota OR employee embedded total)
+      // balance = current remaining balance (from ledger OR employee embedded balance)
+      const total = hasCustomPolicy ? customQuota : (employeeBalance?.total ?? defaultQuota);
       const balance = hasCustomPolicy ? customQuota : (baseBalance ?? employeeBalance?.balance ?? defaultQuota);
 
       const [allocated, usedCount, restored] = await Promise.all([
@@ -179,14 +194,16 @@ export const getBalanceSummary = async (companyId, employeeId) => {
         balance,
         ledgerBalance: latestEntry?.balanceAfter || balance,
         lastTransaction: latestEntry?.transactionDate || null,
-        yearlyStats: { allocated, used, restored },
+        yearlyStats: { allocated, used: usedCount, restored },
         // Include leave type details for frontend display
         leaveTypeName: leaveTypeDetails?.name || type,
         isPaid: leaveTypeDetails?.isPaid !== false, // Default to paid
         annualQuota: leaveTypeDetails?.annualQuota || 0,
         // Include custom policy information
         hasCustomPolicy,
-        customDays: hasCustomPolicy ? customDays : undefined,
+        customPolicyId: hasCustomPolicy ? customPolicy.policyId : undefined,
+        customPolicyName: hasCustomPolicy ? customPolicy.policyName : undefined,
+        customDays: hasCustomPolicy ? customQuota : undefined,
       };
     }
 
@@ -267,85 +284,232 @@ export const getBalanceHistoryByFinancialYear = async (companyId, employeeId, fi
 
 /**
  * Record leave usage in ledger
+ * @param {string} companyId - Company ID
+ * @param {string} employeeId - Employee ID
+ * @param {string} leaveType - Leave type code (lowercase)
+ * @param {number} amount - Number of days
+ * @param {string} leaveId - Leave request ID
+ * @param {Date|string} startDate - Leave start date
+ * @param {Date|string} endDate - Leave end date
+ * @param {string} description - Description
+ * @param {ClientSession} session - Optional MongoDB session for transaction support
  */
-export const recordLeaveUsage = async (companyId, employeeId, leaveType, amount, leaveId, startDate, endDate, description) => {
-  try {
-    const { leaveLedger } = getTenantCollections(companyId);
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+export const recordLeaveUsage = async (companyId, employeeId, leaveType, amount, leaveId, startDate, endDate, description, session = null) => {
+  const { leaveLedger } = getTenantCollections(companyId);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
 
-    const latestEntry = await getLatestEntry(leaveLedger, employeeId, leaveType);
-    const balanceBefore = latestEntry ? latestEntry.balanceAfter : 0;
-    const balanceAfter = balanceBefore - amount;
+  // Get latest balance using session if provided
+  const latestEntry = await getLatestEntry(leaveLedger, employeeId, leaveType, session);
+  const balanceBefore = latestEntry ? latestEntry.balanceAfter : 0;
+  const balanceAfter = balanceBefore - amount;
 
-    const entry = {
-      employeeId,
-      companyId,
-      leaveType,
-      transactionType: 'used',
-      amount: -amount,
-      balanceBefore,
-      balanceAfter,
-      leaveRequestId: leaveId,
-      transactionDate: now,
-      financialYear: getFinancialYear(year),
-      year,
-      month,
-      description: description || 'Leave used',
-      details: { startDate, endDate, duration: amount },
-      isDeleted: false,
-      createdAt: now,
-      updatedAt: now,
-    };
+  const entry = {
+    employeeId,
+    companyId,
+    leaveType,
+    transactionType: 'used',
+    amount: -amount,
+    balanceBefore,
+    balanceAfter,
+    leaveRequestId: leaveId,
+    transactionDate: now,
+    financialYear: getFinancialYear(year),
+    year,
+    month,
+    description: description || 'Leave used',
+    details: { startDate, endDate, duration: amount },
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
+  };
 
-    const result = await leaveLedger.insertOne(entry);
-    return { success: true, data: { ...entry, _id: result.insertedId } };
-  } catch (error) {
-    console.error('Error recording leave usage:', error);
-    return { success: false, error: error.message };
-  }
+  // Use session if provided (for transaction support)
+  const options = session ? { session } : {};
+  const result = await leaveLedger.insertOne(entry, options);
+
+  return { ...entry, _id: result.insertedId };
 };
 
 /**
  * Record leave restoration in ledger
+ * @param {string} companyId - Company ID
+ * @param {string} employeeId - Employee ID
+ * @param {string} leaveType - Leave type code (lowercase)
+ * @param {number} amount - Number of days
+ * @param {string} leaveId - Leave request ID
+ * @param {string} description - Description
+ * @param {ClientSession} session - Optional MongoDB session for transaction support
  */
-export const recordLeaveRestoration = async (companyId, employeeId, leaveType, amount, leaveId, description) => {
-  try {
-    const { leaveLedger } = getTenantCollections(companyId);
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
+export const recordLeaveRestoration = async (companyId, employeeId, leaveType, amount, leaveId, description, session = null) => {
+  const { leaveLedger } = getTenantCollections(companyId);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
 
-    const latestEntry = await getLatestEntry(leaveLedger, employeeId, leaveType);
-    const balanceBefore = latestEntry ? latestEntry.balanceAfter : 0;
-    const balanceAfter = balanceBefore + amount;
+  // Get latest balance using session if provided
+  const latestEntry = await getLatestEntry(leaveLedger, employeeId, leaveType, session);
+  const balanceBefore = latestEntry ? latestEntry.balanceAfter : 0;
+  const balanceAfter = balanceBefore + amount;
 
-    const entry = {
-      employeeId,
-      companyId,
-      leaveType,
-      transactionType: 'restored',
-      amount,
-      balanceBefore,
-      balanceAfter,
-      leaveRequestId: leaveId,
-      transactionDate: now,
-      financialYear: getFinancialYear(year),
-      year,
-      month,
-      description: description || 'Leave restored after cancellation',
-      isDeleted: false,
-      createdAt: now,
-      updatedAt: now,
-    };
+  const entry = {
+    employeeId,
+    companyId,
+    leaveType,
+    transactionType: 'restored',
+    amount,
+    balanceBefore,
+    balanceAfter,
+    leaveRequestId: leaveId,
+    transactionDate: now,
+    financialYear: getFinancialYear(year),
+    year,
+    month,
+    description: description || 'Leave restored after cancellation',
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
+  };
 
-    const result = await leaveLedger.insertOne(entry);
-    return { success: true, data: { ...entry, _id: result.insertedId } };
-  } catch (error) {
-    console.error('Error recording leave restoration:', error);
-    return { success: false, error: error.message };
-  }
+  // Use session if provided (for transaction support)
+  const options = session ? { session } : {};
+  const result = await leaveLedger.insertOne(entry, options);
+
+  return { ...entry, _id: result.insertedId };
+};
+
+/**
+ * Record custom policy adjustment in ledger
+ * Called when a custom leave policy is created, updated, or deleted
+ * @param {string} companyId - Company ID
+ * @param {string} employeeId - Employee ID
+ * @param {string} leaveType - Leave type code (lowercase)
+ * @param {number} customQuota - New custom quota (can be positive or negative adjustment)
+ * @param {number} defaultQuota - Default company quota for this leave type
+ * @param {string} policyName - Name of the custom policy
+ * @param {string} policyId - ID of the custom policy
+ * @param {ClientSession} session - Optional MongoDB session for transaction support
+ */
+export const recordCustomPolicyAdjustment = async (
+  companyId,
+  employeeId,
+  leaveType,
+  customQuota,
+  defaultQuota,
+  policyName,
+  policyId,
+  session = null
+) => {
+  const { leaveLedger } = getTenantCollections(companyId);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  // Get current balance from latest ledger entry
+  const latestEntry = await getLatestEntry(leaveLedger, employeeId, leaveType, session);
+  const currentBalance = latestEntry ? latestEntry.balanceAfter : defaultQuota;
+
+  // Calculate adjustment: difference between custom quota and default quota
+  // But if there are already used days, we need to adjust differently
+  const adjustment = customQuota - defaultQuota;
+  const balanceAfter = currentBalance + adjustment;
+
+  const entry = {
+    employeeId,
+    companyId,
+    leaveType,
+    transactionType: 'custom_adjustment',
+    amount: adjustment,
+    balanceBefore: currentBalance,
+    balanceAfter,
+    customPolicyId: policyId,
+    transactionDate: now,
+    financialYear: getFinancialYear(year),
+    year,
+    month,
+    description: `Custom policy "${policyName}" applied (${customQuota} days, ${adjustment >= 0 ? '+' : ''}${adjustment} adjustment)`,
+    details: {
+      customQuota,
+      defaultQuota,
+      adjustment,
+      policyName,
+      policyId
+    },
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Use session if provided (for transaction support)
+  const options = session ? { session } : {};
+  const result = await leaveLedger.insertOne(entry, options);
+
+  return { success: true, data: { ...entry, _id: result.insertedId } };
+};
+
+/**
+ * Record custom policy reversal when policy is deleted
+ * @param {string} companyId - Company ID
+ * @param {string} employeeId - Employee ID
+ * @param {string} leaveType - Leave type code (lowercase)
+ * @param {number} previousCustomQuota - The custom quota that was being applied
+ * @param {number} defaultQuota - Default company quota for this leave type
+ * @param {string} policyName - Name of the custom policy being removed
+ * @param {ClientSession} session - Optional MongoDB session
+ */
+export const recordCustomPolicyReversal = async (
+  companyId,
+  employeeId,
+  leaveType,
+  previousCustomQuota,
+  defaultQuota,
+  policyName,
+  session = null
+) => {
+  const { leaveLedger } = getTenantCollections(companyId);
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+
+  // Get current balance from latest ledger entry
+  const latestEntry = await getLatestEntry(leaveLedger, employeeId, leaveType, session);
+  const currentBalance = latestEntry ? latestEntry.balanceAfter : previousCustomQuota;
+
+  // Calculate reversal: negative of the previous adjustment
+  const adjustment = defaultQuota - previousCustomQuota;
+  const balanceAfter = currentBalance + adjustment;
+
+  const entry = {
+    employeeId,
+    companyId,
+    leaveType,
+    transactionType: 'custom_adjustment',
+    amount: adjustment,
+    balanceBefore: currentBalance,
+    balanceAfter,
+    transactionDate: now,
+    financialYear: getFinancialYear(year),
+    year,
+    month,
+    description: `Custom policy "${policyName}" removed (reverted to default ${defaultQuota} days, ${adjustment >= 0 ? '+' : ''}${adjustment} adjustment)`,
+    details: {
+      previousCustomQuota,
+      defaultQuota,
+      adjustment,
+      policyName,
+      reverted: true
+    },
+    isDeleted: false,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  // Use session if provided (for transaction support)
+  const options = session ? { session } : {};
+  const result = await leaveLedger.insertOne(entry, options);
+
+  return { success: true, data: { ...entry, _id: result.insertedId } };
 };
 
 /**
@@ -427,6 +591,8 @@ export default {
   getBalanceHistoryByFinancialYear,
   recordLeaveUsage,
   recordLeaveRestoration,
+  recordCustomPolicyAdjustment,
+  recordCustomPolicyReversal,
   initializeEmployeeLedger,
   exportBalanceHistory,
 };

@@ -16,23 +16,23 @@ router.use(authenticate);
 /**
  * @route   GET /api/resignations/stats
  * @desc    Get resignation statistics
- * @access  Private (Admin, HR, Superadmin)
+ * @access  Private (Admin, HR, Superadmin, Manager, Employee)
  */
-router.get('/stats', requireRole('admin', 'hr', 'superadmin'), resignationController.getStats);
+router.get('/stats', requireRole('admin', 'hr', 'superadmin', 'manager', 'employee'), resignationController.getStats);
 
 /**
  * @route   GET /api/resignations/departments
  * @desc    Get departments for resignation filter
- * @access  Private (Admin, HR, Superadmin)
+ * @access  Private (Admin, HR, Superadmin, Manager, Employee)
  */
-router.get('/departments', requireRole('admin', 'hr', 'superadmin'), resignationController.getResignationDepartments);
+router.get('/departments', requireRole('admin', 'hr', 'superadmin', 'manager', 'employee'), resignationController.getResignationDepartments);
 
 /**
  * @route   GET /api/resignations/employees/:departmentId
  * @desc    Get employees by department
- * @access  Private (Admin, HR, Superadmin)
+ * @access  Private (Admin, HR, Superadmin, Manager, Employee)
  */
-router.get('/employees/:departmentId', requireRole('admin', 'hr', 'superadmin'), resignationController.getEmployeesByDepartmentId);
+router.get('/employees/:departmentId', requireRole('admin', 'hr', 'superadmin', 'manager', 'employee'), resignationController.getEmployeesByDepartmentId);
 
 /**
  * @route   GET /api/resignations

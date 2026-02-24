@@ -88,6 +88,7 @@ export const getTenantCollections = (tenantDbName) => {
     tasks: db.collection('tasks'),
     taskstatus: db.collection('taskstatus'),
     attendance: db.collection('attendance'),
+    attendanceAudit: db.collection('attendanceAudit'), // Phase 3: Attendance audit logging
     departments: db.collection('departments'),
     leaves: db.collection('leaves'),
     leaveRequests: db.collection('leaves'),

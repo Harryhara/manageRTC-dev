@@ -15,6 +15,7 @@ import { useAuth } from '../../../../hooks/useAuth';
 import { LedgerFilters, transactionTypeDisplayMap, useLeaveLedger } from '../../../../hooks/useLeaveLedger';
 import { useLeaveTypesREST } from '../../../../hooks/useLeaveTypesREST';
 import { all_routes } from '../../../router/all_routes';
+import { useAutoReloadActions } from '../../../../hooks/useAutoReload';
 
 const LoadingSpinner = () => (
   <div style={{ textAlign: 'center', padding: '50px' }}>
@@ -71,14 +72,29 @@ const LeaveLedger = () => {
     fetchMyBalanceSummary,
   } = useLeaveLedger();
 
+  // Auto-reload hook for refetching after actions
+  const { refetchAfterAction } = useAutoReloadActions({
+    fetchFn: () => {
+      fetchMyBalanceHistory();
+      fetchMyBalanceSummary();
+    },
+    debug: true,
+  });
+
   // Fetch active leave types from database
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
 
   // Create dynamic leave type display map from database
+  // Maps both ObjectId (new system) and code (legacy) to display name
   const leaveTypeDisplayMap = useMemo(() => {
     const map: Record<string, string> = {};
     activeOptions.forEach(option => {
-      map[option.value.toLowerCase()] = String(option.label);
+      // Map by ObjectId (new system) - primary key
+      map[option.value] = String(option.label);
+      // Map by code (legacy) - fallback for backward compatibility
+      if (option.code) {
+        map[option.code.toLowerCase()] = String(option.label);
+      }
     });
     return map;
   }, [activeOptions]);
@@ -98,12 +114,12 @@ const LeaveLedger = () => {
     fetchMyBalanceHistory(filters);
   }, [fetchActiveLeaveTypes]);
 
-  // Leave type filter options - fetched from database, converted to lowercase for ledger
+  // Leave type filter options - fetched from database, use ObjectId value
   const leaveTypeOptions = useMemo(() => {
     return [
       { value: '', label: 'All Types' },
       ...activeOptions.map((lt) => ({
-        value: lt.value.toLowerCase(), // Convert to lowercase for ledger API
+        value: lt.value, // ObjectId for filtering
         label: lt.label,
       }))
     ];

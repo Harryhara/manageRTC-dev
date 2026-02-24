@@ -1,27 +1,22 @@
-import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import { all_routes } from "../../router/all_routes";
-import "slick-carousel/slick/slick.css";
-import "slick-carousel/slick/slick-theme.css";
-import ReactApexChart from "react-apexcharts";
-import CircleProgressSmall from "./circleProgressSmall";
-import CircleProgress from "./circleProgress";
-import { Calendar } from "primereact/calendar";
-import { DatePicker } from "antd";
-import CommonSelect from "../../../core/common/commonSelect";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import { useAuth, useUser } from "@clerk/clerk-react";
-import { attendance } from "../../../core/common/selectoption/selectoption";
-import io from "socket.io-client";
 import { ApexOptions } from "apexcharts";
-import RequestModals from "../../../core/modals/requestModal";
 import CryptoJS from "crypto-js";
-import { DateTime } from "luxon";
-import { current } from "immer";
 import jsPDF from "jspdf";
+import { DateTime } from "luxon";
+import { useEffect, useState } from "react";
+import ReactApexChart from "react-apexcharts";
+import { Link } from "react-router-dom";
+import "slick-carousel/slick/slick-theme.css";
+import "slick-carousel/slick/slick.css";
+import io from "socket.io-client";
 import * as XLSX from "xlsx";
+import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
 import Footer from "../../../core/common/footer";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import RequestModals from "../../../core/modals/requestModal";
+import { all_routes } from "../../router/all_routes";
+import CircleProgress from "./circleProgress";
+import CircleProgressSmall from "./circleProgressSmall";
 
 interface DashboardData {
   employeeDetails?: {
@@ -131,6 +126,14 @@ interface DashboardData {
     avatarUrl?: string;
     role?: string;
   }>;
+  nextHoliday?: {
+    title: string;
+    date: string;
+  } | null;
+  leavePolicy?: {
+    count: number;
+    lastUpdated: string | null;
+  } | null;
 }
 
 type TaskUpdatePayload = {
@@ -140,7 +143,7 @@ type TaskUpdatePayload = {
   status?: string;
 };
 
-const ENCRYPTION_KEY = "your-strong-encryption-key";
+const ENCRYPTION_KEY = process.env.REACT_APP_ENCRYPTION_KEY || "your-strong-encryption-key";
 const leaveType = [
   { value: "Select", label: "Select" },
   { value: "Sick Leave", label: "Medical Leave" },
@@ -378,8 +381,7 @@ const EmployeeDashboard = () => {
 
       // Save the PDF
       doc.save(
-        `employee-dashboard-${
-          employee?.firstName || "report"
+        `employee-dashboard-${employee?.firstName || "report"
         }-${currentDate.replace(/\//g, "-")}.pdf`
       );
     } catch (error) {
@@ -560,9 +562,8 @@ const EmployeeDashboard = () => {
       }
 
       // Save the Excel file
-      const fileName = `employee-dashboard-${
-        dashboardData.employeeDetails?.firstName || "report"
-      }-${currentDate.replace(/\//g, "-")}.xlsx`;
+      const fileName = `employee-dashboard-${dashboardData.employeeDetails?.firstName || "report"
+        }-${currentDate.replace(/\//g, "-")}.xlsx`;
       XLSX.writeFile(wb, fileName);
     } catch (error) {
       console.error("Error generating Excel:", error);
@@ -613,8 +614,9 @@ const EmployeeDashboard = () => {
               setDashboardData(response.data);
               setLoading(false);
             } else {
-              console.error("Dashboard data error:", response.error);
-              setError(response.error || "Failed to fetch dashboard data");
+              const errorMsg = response.error || response.message || "Failed to fetch dashboard data";
+              console.error("Dashboard data error:", errorMsg);
+              setError(errorMsg);
               setLoading(false);
             }
           }
@@ -992,10 +994,9 @@ const EmployeeDashboard = () => {
   const overtimeHours =
     dashboardData?.workingHoursStats?.today?.expectedOvertimeHours ?? 0;
   const expectedHours = baseHours + overtimeHours;
-  // const expectedSeconds = expectedHours * 3600;
-  const expectedSeconds = 30;
+  const expectedSeconds = expectedHours * 3600;
   const punchInTimeUTC = checkInTime ?? null;
-  const timeZone = dashboardData?.employeeDetails?.timeZone || "Asia/Kolkata";
+  const timeZone = dashboardData?.employeeDetails?.timeZone || "UTC";
   const [leftover, setLeftover] = useState(() =>
     getLeftoverTimeObject(punchInTimeUTC, timeZone, expectedSeconds)
   );
@@ -1829,9 +1830,9 @@ const EmployeeDashboard = () => {
                           leftover.isTimerExpired
                             ? "Auto-Punched Out"
                             : `Punch In at ${convertUtcToTimeZone(
-                                checkInTime,
-                                dashboardData?.employeeDetails?.timeZone || ""
-                              )}`
+                              checkInTime,
+                              dashboardData?.employeeDetails?.timeZone || ""
+                            )}`
                           // `Punch In at ${checkInTime}`
                         }
                       </h6>
@@ -1856,9 +1857,8 @@ const EmployeeDashboard = () => {
                     ) : (
                       <>
                         <button
-                          className={`btn btn-danger w-100 mb-2 ${
-                            isPunchingOut ? "disabled" : ""
-                          }`}
+                          className={`btn btn-danger w-100 mb-2 ${isPunchingOut ? "disabled" : ""
+                            }`}
                           disabled={
                             !(
                               leftover.hrs === 0 &&
@@ -2023,14 +2023,14 @@ const EmployeeDashboard = () => {
                         <h2 className="mb-2">
                           {
                             dashboardData?.workingHoursStats?.thisMonth
-                              ?.overtimeHours
+                              ?.overtimeHours ?? 0
                           }{" "}
                           /{" "}
                           <span className="fs-20 text-gray-5">
                             {" "}
                             {
                               dashboardData?.workingHoursStats?.thisMonth
-                                ?.overtimeHours
+                                ?.expectedOvertimeHours ?? 0
                             }
                           </span>
                         </h2>
@@ -2216,7 +2216,7 @@ const EmployeeDashboard = () => {
                                   <h6 className="fw-normal">
                                     <Link to="#">
                                       {project.leadDetails?.firstName &&
-                                      project.leadDetails?.lastName
+                                        project.leadDetails?.lastName
                                         ? `${project.leadDetails.firstName} ${project.leadDetails.lastName}`
                                         : "lead"}
                                     </Link>
@@ -2396,11 +2396,10 @@ const EmployeeDashboard = () => {
                                   }}
                                 >
                                   <i
-                                    className={`ti ${
-                                      task.starred
-                                        ? "ti-star-filled filled"
-                                        : "ti-star"
-                                    }`}
+                                    className={`ti ${task.starred
+                                      ? "ti-star-filled filled"
+                                      : "ti-star"
+                                      }`}
                                     aria-label={
                                       task.starred ? "Unstar task" : "Star task"
                                     }
@@ -2511,7 +2510,7 @@ const EmployeeDashboard = () => {
                       <span>vs last years</span>
                     </div> */}
                     {performance_chart2_series.length === months.length &&
-                    performance_chart2_series.length > 0 ? (
+                      performance_chart2_series.length > 0 ? (
                       <ReactApexChart
                         options={{
                           ...performance_chart2_options,
@@ -2620,7 +2619,7 @@ const EmployeeDashboard = () => {
                     <div className="text-center">
                       <h5 className="text-white mb-4">Team Birthday</h5>
                       {dashboardData?.birthdays &&
-                      dashboardData?.birthdays.length > 0 ? (
+                        dashboardData?.birthdays.length > 0 ? (
                         dashboardData?.birthdays.map((birthday) => (
                           <div key={birthday._id} className="mb-4">
                             <span className="avatar avatar-xl avatar-rounded mb-2">
@@ -2655,7 +2654,11 @@ const EmployeeDashboard = () => {
                   <div className="card-body d-flex align-items-center justify-content-between p-3">
                     <div>
                       <h5 className="text-white mb-1">Leave Policy</h5>
-                      <p className="text-white">Last Updated : Today</p>
+                      <p className="text-white">
+                        {dashboardData?.leavePolicy?.lastUpdated
+                          ? `Last Updated : ${new Date(dashboardData.leavePolicy.lastUpdated).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+                          : "No policies available"}
+                      </p>
                     </div>
                     <Link to="#" className="btn btn-white btn-sm px-3">
                       View All
@@ -2666,10 +2669,14 @@ const EmployeeDashboard = () => {
                   <div className="card-body d-flex align-items-center justify-content-between p-3">
                     <div>
                       <h5 className="mb-1">Next Holiday</h5>
-                      <p className="text-gray-9">Diwali, 15 Sep 2025</p>
+                      <p className="text-gray-9">
+                        {dashboardData?.nextHoliday
+                          ? `${dashboardData.nextHoliday.title}, ${new Date(dashboardData.nextHoliday.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })}`
+                          : "No upcoming holidays"}
+                      </p>
                     </div>
                     <Link
-                      to="holidays.html"
+                      to={routes.adminDashboard}
                       className="btn btn-white btn-sm px-3"
                     >
                       View All
@@ -2823,8 +2830,8 @@ const EmployeeDashboard = () => {
                           {filters.meetings === "today"
                             ? "Today"
                             : filters.meetings === "month"
-                            ? "This Month"
-                            : "This Year"}
+                              ? "This Month"
+                              : "This Year"}
                         </span>
                       </Link>
                       <ul className="dropdown-menu  dropdown-menu-end p-3">

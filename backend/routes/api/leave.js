@@ -8,8 +8,9 @@ import { uploadSingleAttachment } from '../../config/multer.config.js';
 import leaveCarryForwardController from '../../controllers/leaves/leaveCarryForward.controller.js';
 import leaveEncashmentController from '../../controllers/leaves/leaveEncashment.controller.js';
 import leaveLedgerController from '../../controllers/leaves/leaveLedger.controller.js';
+import leaveAttendanceSyncController from '../../controllers/leaves/leaveAttendanceSync.controller.js';
 import leaveController from '../../controllers/rest/leave.controller.js';
-import { authenticate } from '../../middleware/auth.js';
+import { authenticate, requireRole } from '../../middleware/auth.js';
 
 const router = express.Router();
 
@@ -56,7 +57,7 @@ router.get('/team', leaveController.getTeamLeaves);
  * @desc    Get leave statistics for admin dashboard
  * @access  Private (Admin, HR, Superadmin)
  */
-router.get('/stats', leaveController.getLeaveStats);
+router.get('/stats', requireRole('admin', 'hr', 'superadmin'), leaveController.getLeaveStats);
 
 // ============================================
 // LEAVE LEDGER / BALANCE HISTORY ROUTES
@@ -104,15 +105,15 @@ router.get('/ledger/financial-year/:financialYear', leaveLedgerController.getBal
  * @desc    Export balance history
  * @access  Private (HR, Admin, Superadmin, or own data)
  */
-router.get('/ledger/export', leaveLedgerController.exportBalanceHistory);
-router.get('/ledger/export/:employeeId', leaveLedgerController.exportBalanceHistory);
+router.get('/ledger/export', requireRole('admin', 'hr', 'superadmin'), leaveLedgerController.exportBalanceHistory);
+router.get('/ledger/export/:employeeId', requireRole('admin', 'hr', 'superadmin'), leaveLedgerController.exportBalanceHistory);
 
 /**
  * @route   POST /api/leaves/ledger/initialize/:employeeId
  * @desc    Initialize ledger for employee
  * @access  Private (HR, Admin, Superadmin)
  */
-router.post('/ledger/initialize/:employeeId', leaveLedgerController.initializeEmployeeLedger);
+router.post('/ledger/initialize/:employeeId', requireRole('admin', 'hr', 'superadmin'), leaveLedgerController.initializeEmployeeLedger);
 
 // ============================================
 // LEAVE CARRY FORWARD ROUTES
@@ -152,7 +153,7 @@ router.post('/carry-forward/execute/:employeeId', leaveCarryForwardController.ex
  * @desc    Execute carry forward for all employees
  * @access  Private (Admin, Superadmin)
  */
-router.post('/carry-forward/execute-all', leaveCarryForwardController.executeCompanyCarryForward);
+router.post('/carry-forward/execute-all', requireRole('admin', 'superadmin'), leaveCarryForwardController.executeCompanyCarryForward);
 
 /**
  * @route   GET /api/leaves/carry-forward/history/:employeeId
@@ -308,7 +309,6 @@ router.post('/:id/cancel', leaveController.cancelLeave);
  * @access  Private (Owner, Admin, HR)
  */
 router.post('/:leaveId/attachments',
-  authenticate,
   uploadSingleAttachment,
   leaveController.uploadAttachment
 );
@@ -319,7 +319,6 @@ router.post('/:leaveId/attachments',
  * @access  Private (Owner, Admin, HR)
  */
 router.get('/:leaveId/attachments',
-  authenticate,
   leaveController.getAttachments
 );
 
@@ -329,8 +328,40 @@ router.get('/:leaveId/attachments',
  * @access  Private (Owner, Admin, HR)
  */
 router.delete('/:leaveId/attachments/:attachmentId',
-  authenticate,
   leaveController.deleteAttachment
+);
+
+// ============================================
+// ATTENDANCE SYNC ROUTES (Phase 1 - Critical Fixes)
+// ============================================
+
+/**
+ * @route   POST /api/leaves/sync-attendance
+ * @desc    Trigger backfill of all approved leaves to attendance records
+ * @access  Private (Admin, Superadmin)
+ */
+router.post('/sync-attendance',
+  requireRole('admin', 'superadmin'),
+  leaveAttendanceSyncController.syncAttendanceForApprovedLeaves
+);
+
+/**
+ * @route   GET /api/leaves/:leaveId/attendance
+ * @desc    Get attendance records for a specific leave
+ * @access  Private (Admin, HR, Superadmin, or own leave)
+ */
+router.get('/:leaveId/attendance',
+  leaveAttendanceSyncController.getAttendanceForLeave
+);
+
+/**
+ * @route   POST /api/leaves/:leaveId/sync-attendance
+ * @desc    Sync attendance for a specific approved leave
+ * @access  Private (Admin, HR, Superadmin)
+ */
+router.post('/:leaveId/sync-attendance',
+  requireRole('admin', 'hr', 'superadmin'),
+  leaveAttendanceSyncController.syncSingleLeaveToAttendance
 );
 
 export default router;

@@ -162,10 +162,11 @@ export const authenticate = async (req, res, next) => {
     });
 
     // ⚠️ SECURITY WARNING: DEVELOPMENT WORKAROUND!
-    // In development mode, if admin/hr users don't have a companyId, use the DEV_COMPANY_ID from env
+    // In development mode, if users don't have a companyId, use the DEV_COMPANY_ID from env
     // This is a TEMPORARY FIX that MUST be removed before production deployment!
     // This matches the Socket.IO authentication behavior
-    if (isDevelopment && (role === "admin" || role === "hr" || role === "manager") && !companyId) {
+    // Applies to all non-superadmin roles (employee, admin, hr, manager)
+    if (isDevelopment && (role === "admin" || role === "hr" || role === "manager" || role === "employee") && !companyId) {
       const devCompanyId = process.env.DEV_COMPANY_ID;
       if (devCompanyId) {
         companyId = devCompanyId;
@@ -174,7 +175,7 @@ export const authenticate = async (req, res, next) => {
         );
       } else {
         console.error(
-          '❌ SECURITY ERROR: Admin/HR user missing companyId and DEV_COMPANY_ID not set in environment!'
+          `❌ SECURITY ERROR: ${role} user missing companyId and DEV_COMPANY_ID not set in environment!`
         );
         console.error(
           '⚠️ Please either set the companyId in Clerk user metadata or set DEV_COMPANY_ID environment variable'

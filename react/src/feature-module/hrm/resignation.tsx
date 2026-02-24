@@ -13,6 +13,7 @@ import ResignationDetailsModal from "../../core/modals/ResignationDetailsModal";
 import { useSocket } from "../../SocketContext";
 import { all_routes } from "../router/all_routes";
 // REST API Hooks
+import { useAuth } from "../../hooks/useAuth";
 import { useDepartmentsREST } from "../../hooks/useDepartmentsREST";
 import { useEmployeesREST } from "../../hooks/useEmployeesREST";
 import { useProfileRest } from "../../hooks/useProfileRest";
@@ -94,7 +95,9 @@ const Resignation = () => {
   const [filterDateRange, setFilterDateRange] = useState<{ start?: string; end?: string }>({});
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
 
-  const userRole = currentUserProfile?.role?.toLowerCase();
+  // Use useAuth for reliable role detection from Clerk
+  const { role: authRole } = useAuth();
+  const userRole = authRole || currentUserProfile?.role?.toLowerCase() || "employee";
   const isEmployeeRole = userRole === "employee";
   const isManagerRole = userRole === "manager";
   const isHrRole = userRole === "hr";
@@ -198,9 +201,9 @@ const Resignation = () => {
       reason: row.reason || "",
       resignationDate: row.resignationDate
         ? format(
-            parse(row.resignationDate, "yyyy-MM-dd", new Date()),
-            "dd-MM-yyyy"
-          )
+          parse(row.resignationDate, "yyyy-MM-dd", new Date()),
+          "dd-MM-yyyy"
+        )
         : "",
       resignationId: row.resignationId,
     });
@@ -439,20 +442,20 @@ const Resignation = () => {
       const statusValue = resignation.resignationStatus as string | undefined;
       const normalizedStatus = (statusValue === 'approved' ? 'on_notice' : statusValue) as ResignationRow['resignationStatus'];
       return {
-      ...resignation,
-      employeeName: resignation.employeeName || 'Unknown',
-      department: resignation.department || '',
-      departmentId: resignation.departmentId || '',
-      resignationId: resignation.resignationId || resignation._id || '',
-      employeeId: resignation.employeeId || '',
-      reason: resignation.reason || '',
-      noticeDate: resignation.noticeDate || '',
-      resignationDate: resignation.resignationDate || '',
-      status: resignation.status || normalizedStatus || 'pending',
-      resignationStatus: normalizedStatus,
-      reportingManagerId: resignation.reportingManagerId || '',
-      reportingManagerName: resignation.reportingManagerName || '',
-    };
+        ...resignation,
+        employeeName: resignation.employeeName || 'Unknown',
+        department: resignation.department || '',
+        departmentId: resignation.departmentId || '',
+        resignationId: resignation.resignationId || resignation._id || '',
+        employeeId: resignation.employeeId || '',
+        reason: resignation.reason || '',
+        noticeDate: resignation.noticeDate || '',
+        resignationDate: resignation.resignationDate || '',
+        status: resignation.status || normalizedStatus || 'pending',
+        resignationStatus: normalizedStatus,
+        reportingManagerId: resignation.reportingManagerId || '',
+        reportingManagerName: resignation.reportingManagerName || '',
+      };
     });
 
     setRows(transformedResignations);
@@ -959,6 +962,10 @@ const Resignation = () => {
 
   const filteredRows = rows
     .filter((row) => {
+      // For employees, only show their own resignation
+      if (isEmployeeRole && currentEmployee?._id) {
+        if (row.employee_id !== currentEmployee._id) return false;
+      }
       if (filterDepartmentId && row.departmentId !== filterDepartmentId) return false;
       if (filterStatus && row.resignationStatus?.toLowerCase() !== filterStatus) return false;
       if (filterEmployeeQuery) {
@@ -1217,77 +1224,79 @@ const Resignation = () => {
           </div>
           {/* /Breadcrumb */}
 
-          {/* Resignation Stats Cards */}
-          <div className="row">
-            <div className="col-xl-3 col-sm-6 col-12 d-flex">
-              <div className="card bg-comman w-100">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="bg-primary-light rounded-circle p-2">
-                      <i className="ti ti-user-off text-primary fs-20" />
+          {/* Resignation Stats Cards - Hidden for employees */}
+          {!isEmployeeRole && (
+            <div className="row">
+              <div className="col-xl-3 col-sm-6 col-12 d-flex">
+                <div className="card bg-comman w-100">
+                  <div className="card-body">
+                    <div className="d-flex align-items-center justify-content-between">
+                      <div className="bg-primary-light rounded-circle p-2">
+                        <i className="ti ti-user-off text-primary fs-20" />
+                      </div>
+                      <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                        {stats.total}
+                      </h5>
                     </div>
-                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.total}
-                    </h5>
+                    <div className="d-flex align-items-center justify-content-between mt-3">
+                      <span className="fs-14 fw-medium text-gray">Total Resignations</span>
+                    </div>
                   </div>
-                  <div className="d-flex align-items-center justify-content-between mt-3">
-                    <span className="fs-14 fw-medium text-gray">Total Resignations</span>
+                </div>
+              </div>
+              <div className="col-xl-3 col-sm-6 col-12 d-flex">
+                <div className="card bg-comman w-100">
+                  <div className="card-body">
+                    <div className="d-flex align-items-center justify-content-between">
+                      <div className="bg-warning-light rounded-circle p-2">
+                        <i className="ti ti-clock text-warning fs-20" />
+                      </div>
+                      <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                        {stats.pending}
+                      </h5>
+                    </div>
+                    <div className="d-flex align-items-center justify-content-between mt-3">
+                      <span className="fs-14 fw-medium text-gray">Pending</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="col-xl-3 col-sm-6 col-12 d-flex">
+                <div className="card bg-comman w-100">
+                  <div className="card-body">
+                    <div className="d-flex align-items-center justify-content-between">
+                      <div className="bg-info-light rounded-circle p-2">
+                        <i className="ti ti-bell text-info fs-20" />
+                      </div>
+                      <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                        {stats.onNotice}
+                      </h5>
+                    </div>
+                    <div className="d-flex align-items-center justify-content-between mt-3">
+                      <span className="fs-14 fw-medium text-gray">On Notice</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div className="col-xl-3 col-sm-6 col-12 d-flex">
+                <div className="card bg-comman w-100">
+                  <div className="card-body">
+                    <div className="d-flex align-items-center justify-content-between">
+                      <div className="bg-danger-light rounded-circle p-2">
+                        <i className="ti ti-user-x text-danger fs-20" />
+                      </div>
+                      <h5 className="fs-22 fw-semibold text-truncate mb-0">
+                        {stats.resigned}
+                      </h5>
+                    </div>
+                    <div className="d-flex align-items-center justify-content-between mt-3">
+                      <span className="fs-14 fw-medium text-gray">Resigned</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-            <div className="col-xl-3 col-sm-6 col-12 d-flex">
-              <div className="card bg-comman w-100">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="bg-warning-light rounded-circle p-2">
-                      <i className="ti ti-clock text-warning fs-20" />
-                    </div>
-                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.pending}
-                    </h5>
-                  </div>
-                  <div className="d-flex align-items-center justify-content-between mt-3">
-                    <span className="fs-14 fw-medium text-gray">Pending</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-sm-6 col-12 d-flex">
-              <div className="card bg-comman w-100">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="bg-info-light rounded-circle p-2">
-                      <i className="ti ti-bell text-info fs-20" />
-                    </div>
-                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.onNotice}
-                    </h5>
-                  </div>
-                  <div className="d-flex align-items-center justify-content-between mt-3">
-                    <span className="fs-14 fw-medium text-gray">On Notice</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="col-xl-3 col-sm-6 col-12 d-flex">
-              <div className="card bg-comman w-100">
-                <div className="card-body">
-                  <div className="d-flex align-items-center justify-content-between">
-                    <div className="bg-danger-light rounded-circle p-2">
-                      <i className="ti ti-user-x text-danger fs-20" />
-                    </div>
-                    <h5 className="fs-22 fw-semibold text-truncate mb-0">
-                      {stats.resigned}
-                    </h5>
-                  </div>
-                  <div className="d-flex align-items-center justify-content-between mt-3">
-                    <span className="fs-14 fw-medium text-gray">Resigned</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
           {/* /Resignation Stats Cards */}
 
           {/* Resignation List */}
@@ -1296,95 +1305,97 @@ const Resignation = () => {
               <div className="card">
                 <div className="card-header d-flex align-items-center justify-content-between flex-wrap row-gap-3">
                   <h5 className="d-flex align-items-center">
-                    Resignation List
+                    {isEmployeeRole ? "My Resignation" : "Resignation List"}
                   </h5>
-                  <div className="d-flex align-items-center flex-wrap row-gap-3">
-                    <div className="dropdown">
-                      <Link
-                        to="#"
-                        className="d-inline-flex align-items-center fs-12"
-                      >
-                        <label className="fs-12 d-inline-flex me-1">
-                          Sort By :{" "}
-                        </label>
+                  {!isEmployeeRole && (
+                    <div className="d-flex align-items-center flex-wrap row-gap-3">
+                      <div className="dropdown">
+                        <Link
+                          to="#"
+                          className="d-inline-flex align-items-center fs-12"
+                        >
+                          <label className="fs-12 d-inline-flex me-1">
+                            Sort By :{" "}
+                          </label>
+                          <CommonSelect
+                            className="select"
+                            options={[
+                              { value: "today", label: "Today" },
+                              { value: "yesterday", label: "Yesterday" },
+                              { value: "last7days", label: "Last 7 Days" },
+                              { value: "last30days", label: "Last 30 Days" },
+                              { value: "thismonth", label: "This Month" },
+                              { value: "lastmonth", label: "Last Month" },
+                              { value: "thisyear", label: "This Year" },
+                              { value: "alltime", label: "All Time" },
+                            ]}
+                            defaultValue={filterType}
+                            onChange={handleFilterChange}
+                          />
+                        </Link>
+                      </div>
+                      <div className="ms-2">
+                        <CommonSelect
+                          className="select"
+                          options={departmentOptions}
+                          value={departmentOptions.find(opt => opt.value === filterDepartmentId) || null}
+                          onChange={handleDepartmentFilterChange}
+                        />
+                      </div>
+                      <div className="ms-2">
                         <CommonSelect
                           className="select"
                           options={[
-                            { value: "today", label: "Today" },
-                            { value: "yesterday", label: "Yesterday" },
-                            { value: "last7days", label: "Last 7 Days" },
-                            { value: "last30days", label: "Last 30 Days" },
-                            { value: "thismonth", label: "This Month" },
-                            { value: "lastmonth", label: "Last Month" },
-                            { value: "thisyear", label: "This Year" },
-                            { value: "alltime", label: "All Time"},
-                          ]}
-                          defaultValue={filterType}
-                          onChange={handleFilterChange}
-                        />
-                      </Link>
-                    </div>
-                    <div className="ms-2">
-                      <CommonSelect
-                        className="select"
-                        options={departmentOptions}
-                        value={departmentOptions.find(opt => opt.value === filterDepartmentId) || null}
-                        onChange={handleDepartmentFilterChange}
-                      />
-                    </div>
-                    <div className="ms-2">
-                      <CommonSelect
-                        className="select"
-                        options={[
-                          { value: "pending", label: "Pending" },
-                          { value: "on_notice", label: "On Notice" },
-                          { value: "rejected", label: "Rejected" },
-                          { value: "resigned", label: "Resigned" },
-                        ]}
-                        value={
-                          [
                             { value: "pending", label: "Pending" },
                             { value: "on_notice", label: "On Notice" },
                             { value: "rejected", label: "Rejected" },
                             { value: "resigned", label: "Resigned" },
-                          ].find(opt => opt.value === filterStatus) || null
-                        }
-                        onChange={handleStatusFilterChange}
-                      />
-                    </div>
-                    <div className="ms-2">
-                      <input
-                        type="text"
-                        className="form-control"
-                        placeholder="Employee Name"
-                        value={filterEmployeeQuery}
-                        onChange={handleEmployeeFilterChange}
-                      />
-                    </div>
-                    <div className="ms-2">
-                      <DatePicker.RangePicker
-                        format={{ format: "DD-MM-YYYY", type: "mask" }}
-                        onChange={handleDateRangeFilterChange}
-                        className="form-control"
-                      />
-                    </div>
-                    <div className="ms-2">
-                      <CommonSelect
-                        className="select"
-                        options={[
-                          { value: "desc", label: "Date: Newest" },
-                          { value: "asc", label: "Date: Oldest" },
-                        ]}
-                        value={
-                          [
+                          ]}
+                          value={
+                            [
+                              { value: "pending", label: "Pending" },
+                              { value: "on_notice", label: "On Notice" },
+                              { value: "rejected", label: "Rejected" },
+                              { value: "resigned", label: "Resigned" },
+                            ].find(opt => opt.value === filterStatus) || null
+                          }
+                          onChange={handleStatusFilterChange}
+                        />
+                      </div>
+                      <div className="ms-2">
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="Employee Name"
+                          value={filterEmployeeQuery}
+                          onChange={handleEmployeeFilterChange}
+                        />
+                      </div>
+                      <div className="ms-2">
+                        <DatePicker.RangePicker
+                          format={{ format: "DD-MM-YYYY", type: "mask" }}
+                          onChange={handleDateRangeFilterChange}
+                          className="form-control"
+                        />
+                      </div>
+                      <div className="ms-2">
+                        <CommonSelect
+                          className="select"
+                          options={[
                             { value: "desc", label: "Date: Newest" },
                             { value: "asc", label: "Date: Oldest" },
-                          ].find(opt => opt.value === sortOrder) || null
-                        }
-                        onChange={handleSortOrderChange}
-                      />
+                          ]}
+                          value={
+                            [
+                              { value: "desc", label: "Date: Newest" },
+                              { value: "asc", label: "Date: Oldest" },
+                            ].find(opt => opt.value === sortOrder) || null
+                          }
+                          onChange={handleSortOrderChange}
+                        />
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
                 <div className="card-body p-0">
                   <Table dataSource={filteredRows} columns={columns} Selection={true} />

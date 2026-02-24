@@ -73,6 +73,7 @@ var Tickets = function () {
     var _a = useAuth_1.useAuth(), role = _a.role, userId = _a.userId;
     // Tab configuration
     var isAdmin = ['superadmin', 'admin', 'hr'].includes(role);
+    var isEmployeeRole = ['employee', 'manager'].includes(role);
     var normalUserTabs = [
         { id: 'my-tickets', label: 'My Tickets' },
         { id: 'closed', label: 'Closed' }
@@ -126,6 +127,30 @@ var Tickets = function () {
     var _q = react_1.useState(false), loadingAgents = _q[0], setLoadingAgents = _q[1];
     // Tab counts
     var _r = react_1.useState({}), tabCounts = _r[0], setTabCounts = _r[1];
+    // Compute category counts from user's tickets for employees
+    var employeeCategoryCounts = react_1.useMemo(function () {
+        if (!isEmployeeRole || !ticketsList || ticketsList.length === 0) {
+            return {};
+        }
+        // Count tickets by category from the user's ticket list
+        var counts = {};
+        ticketsList.forEach(function (ticket) {
+            var categoryName = ticket.category || 'Uncategorized';
+            counts[categoryName] = (counts[categoryName] || 0) + 1;
+        });
+        return counts;
+    }, [isEmployeeRole, ticketsList]);
+    // Get display categories with counts based on role
+    var displayCategories = react_1.useMemo(function () {
+        if (!categories || categories.length === 0)
+            return [];
+        if (isEmployeeRole) {
+            // For employees, use counts from their ticket list
+            return categories.map(function (category) { return (__assign(__assign({}, category), { ticketCount: employeeCategoryCounts[category.name] || 0 })); });
+        }
+        // For admins, use server-provided counts
+        return categories;
+    }, [categories, isEmployeeRole, employeeCategoryCounts]);
     // Fetch tickets statistics
     react_1.useEffect(function () {
         if (socket) {
@@ -1437,7 +1462,7 @@ var Tickets = function () {
                                     "Add"))),
                             React.createElement("div", { className: "card-body p-0" }, loadingCategories ? (React.createElement("div", { className: "d-flex align-items-center justify-content-center p-3" },
                                 React.createElement("div", { className: "spinner-border spinner-border-sm", role: "status" },
-                                    React.createElement("span", { className: "visually-hidden" }, "Loading...")))) : categories && categories.length > 0 ? (React.createElement("div", { className: "d-flex flex-column" }, categories.map(function (category, index) { return (React.createElement("div", { key: category._id || index, className: "d-flex align-items-center justify-content-between p-3 " + (index < categories.length - 1 ? 'border-bottom' : '') },
+                                    React.createElement("span", { className: "visually-hidden" }, "Loading...")))) : displayCategories && displayCategories.length > 0 ? (React.createElement("div", { className: "d-flex flex-column" }, displayCategories.map(function (category, index) { return (React.createElement("div", { key: category._id || index, className: "d-flex align-items-center justify-content-between p-3 " + (index < displayCategories.length - 1 ? 'border-bottom' : '') },
                                 React.createElement(react_router_dom_1.Link, { to: "#" }, category.name),
                                 React.createElement("div", { className: "d-flex align-items-center" },
                                     React.createElement("span", { className: "badge badge-xs bg-dark rounded-circle" }, category.ticketCount || 0)))); }))) : (React.createElement("div", { className: "d-flex align-items-center justify-content-center p-3 text-muted" },

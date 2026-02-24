@@ -1,5 +1,5 @@
-import React from "react";
 import dayjs from "dayjs";
+import React from "react";
 import { statusDisplayMap, type LeaveStatus } from "../../hooks/useLeaveREST";
 
 interface AuditTrailEntry {
@@ -17,6 +17,7 @@ interface Leave {
   employeeId?: string;
   employeeName?: string;
   leaveType: string;
+  leaveTypeName?: string;  // Display name from leaveTypes collection (e.g., "Annual Leave")
   startDate: string;
   endDate: string;
   duration: number;
@@ -187,7 +188,7 @@ const LeaveDetailsModal: React.FC<LeaveDetailsModalProps> = ({
                     <div>
                       <h5 className="mb-1">{leave.employeeName || 'Unknown Employee'}</h5>
                       <p className="text-muted mb-0">
-                        {leaveTypeDisplayMap[leave.leaveType] || leave.leaveType}
+                        {leave.leaveTypeName || leaveTypeDisplayMap[leave.leaveType?.toLowerCase?.()] || leave.leaveType}
                       </p>
                     </div>
                   </div>
@@ -211,7 +212,7 @@ const LeaveDetailsModal: React.FC<LeaveDetailsModalProps> = ({
                         <p className="fw-medium mb-0">
                           <span className="badge badge-soft-info d-inline-flex align-items-center">
                             <i className="ti ti-tag me-1" />
-                            {leaveTypeDisplayMap[leave.leaveType] || leave.leaveType}
+                            {leave.leaveTypeName || leaveTypeDisplayMap[leave.leaveType?.toLowerCase?.()] || leave.leaveType}
                           </span>
                         </p>
                       </div>
@@ -390,12 +391,11 @@ const LeaveDetailsModal: React.FC<LeaveDetailsModalProps> = ({
                         {auditTrail.map((entry, index) => (
                           <div key={index} className="timeline-item">
                             <div className="timeline-marker">
-                              <i className={`ti ti-point-filled ${
-                                entry.status === 'approved' ? 'text-success' :
+                              <i className={`ti ti-point-filled ${entry.status === 'approved' ? 'text-success' :
                                 entry.status === 'rejected' ? 'text-danger' :
-                                entry.status === 'cancelled' ? 'text-secondary' :
-                                'text-warning'
-                              }`} />
+                                  entry.status === 'cancelled' ? 'text-secondary' :
+                                    'text-warning'
+                                }`} />
                             </div>
                             <div className="timeline-content">
                               <div className="d-flex justify-content-between align-items-start">
