@@ -7,8 +7,10 @@ import Table from "../../../../core/common/dataTable/index";
 import Footer from "../../../../core/common/footer";
 import ImageWithBasePath from "../../../../core/common/imageWithBasePath";
 import { useAuth } from "../../../../hooks/useAuth";
+import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
 import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
-import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
+import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
+import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { all_routes } from "../../../router/all_routes";
 
 const LoadingSpinner = () => (
@@ -48,7 +50,7 @@ const StatusBadge = ({ status }: { status: LeaveStatus }) => {
 
 // Leave type badge component
 const LeaveTypeBadge = ({ leaveType, leaveTypeDisplayMap }: { leaveType: string; leaveTypeDisplayMap: Record<string, string> }) => {
-  const displayType = leaveTypeDisplayMap[leaveType] || leaveType;
+  const displayType = leaveTypeDisplayMap[leaveType?.toLowerCase?.()] || leaveType;
   return (
     <span className="fs-14 fw-medium d-flex align-items-center">
       {displayType}
@@ -62,6 +64,16 @@ const ManagerLeaveDashboard = () => {
   const { role, userId } = useAuth();
   const { leaves, loading, fetchLeaves, approveLeave, rejectLeave, managerActionLeave, fetchStats, leaveTypeDisplayMap } = useLeaveREST();
   const { employees, fetchEmployees } = useEmployeesREST();
+  const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
+
+  // Auto-reload hook for refetching after actions
+  const { refetchAfterAction } = useAutoReloadActions({
+    fetchFn: () => {
+      fetchLeaves(filters);
+      // Stats will be recalculated via useEffect when leaves change
+    },
+    debug: true,
+  });
 
   // Stats state
   const [stats, setStats] = useState({
@@ -75,7 +87,7 @@ const ManagerLeaveDashboard = () => {
   // Local state for filters
   const [filters, setFilters] = useState<{
     status?: LeaveStatus;
-    leaveType?: LeaveType;
+    leaveType?: LeaveTypeCode;
     page: number;
     limit: number;
     dateRange?: [any, any];
@@ -99,6 +111,7 @@ const ManagerLeaveDashboard = () => {
   useEffect(() => {
     fetchEmployees({ status: 'Active' });
     fetchLeaves(filters);
+    fetchActiveLeaveTypes();
   }, []);
 
   // Fetch stats when leaves change
@@ -192,6 +205,7 @@ const ManagerLeaveDashboard = () => {
         Role: "Employee",
         ReportingManager: leave.reportingManagerName || "-",
         LeaveType: leave.leaveType,
+        LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
         From: startDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
         To: endDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
         NoOfDays: `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
@@ -219,7 +233,7 @@ const ManagerLeaveDashboard = () => {
     const success = await managerActionLeave(id, 'approved');
     if (success) {
       message.success('Leave approved successfully');
-      fetchLeaves(filters);
+      refetchAfterAction();
     }
   };
 
@@ -242,7 +256,7 @@ const ManagerLeaveDashboard = () => {
     if (success) {
       message.success('Leave rejected successfully');
       setRejectModal({ show: false, leaveId: null, reason: '' });
-      fetchLeaves(filters);
+      refetchAfterAction();
     }
   };
 
@@ -254,13 +268,12 @@ const ManagerLeaveDashboard = () => {
     { value: "rejected", label: "Rejected" },
   ];
 
-  // Leave type options
-  const leaveTypeOptions = [
+  // Dynamic leave type options built from active leave types in database
+  // Use ObjectId (value) for filtering - backend supports both leaveType (legacy) and leaveTypeId (new)
+  const leaveTypeOptions = useMemo(() => [
     { value: "", label: "All Types" },
-    { value: "sick", label: "Medical Leave" },
-    { value: "casual", label: "Casual Leave" },
-    { value: "earned", label: "Annual Leave" },
-  ];
+    ...activeOptions.map(option => ({ value: option.value, label: String(option.label) })),
+  ], [activeOptions]);
 
   // Table columns
   const columns = [
@@ -280,8 +293,16 @@ const ManagerLeaveDashboard = () => {
     {
       title: "Leave Type",
       dataIndex: "LeaveType",
-      render: (leaveType: string) => <LeaveTypeBadge leaveType={leaveType} leaveTypeDisplayMap={leaveTypeDisplayMap} />,
-      sorter: (a: any, b: any) => a.LeaveType.length - b.LeaveType.length,
+      render: (_: string, record: any) => {
+        // Use leaveTypeName from backend (ObjectId system) with fallback to map for backward compatibility
+        const displayName = record.LeaveTypeName || leaveTypeDisplayMap[record.LeaveType?.toLowerCase?.()] || record.LeaveType;
+        return (
+          <span className="fs-14 fw-medium d-flex align-items-center">
+            {displayName}
+          </span>
+        );
+      },
+      sorter: (a: any, b: any) => (a.LeaveTypeName || '').localeCompare(b.LeaveTypeName || ''),
     },
     {
       title: "From",
@@ -463,7 +484,7 @@ const ManagerLeaveDashboard = () => {
                             <div className="flex-grow-1">
                               <h6 className="mb-1">{employeeName}</h6>
                               <p className="text-muted mb-0 small">
-                                {leaveTypeDisplayMap[leave.leaveType] || leave.leaveType} - {leave.duration} day{leave.duration > 1 ? 's' : ''}
+                                {leave.leaveTypeName || leaveTypeDisplayMap[leave.leaveType] || leave.leaveType} - {leave.duration} day{leave.duration > 1 ? 's' : ''}
                               </p>
                             </div>
                             <span className="badge bg-success">On Leave</span>
@@ -502,7 +523,7 @@ const ManagerLeaveDashboard = () => {
                   <CommonSelect
                     className="select"
                     options={leaveTypeOptions}
-                    onChange={(option) => setFilters({ ...filters, leaveType: option.value as LeaveType, page: 1 })}
+                    onChange={(option) => setFilters({ ...filters, leaveType: option.value as LeaveTypeCode, page: 1 })}
                   />
                 </div>
                 <div>

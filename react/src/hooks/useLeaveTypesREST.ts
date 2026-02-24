@@ -55,8 +55,9 @@ export interface LeaveType {
  * Leave Type dropdown option for selects
  */
 export interface LeaveTypeOption {
-  value: string;
-  label: string;
+  value: string;   // ObjectId (as string) for the leave type reference
+  label: string;   // Display name (e.g., "Annual Leave")
+  code?: string;   // Backend code (e.g., "EARNED") - for backward compatibility
   color: string;
   icon: string;
   requiresApproval: boolean;

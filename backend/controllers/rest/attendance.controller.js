@@ -7,26 +7,35 @@
 import { ObjectId } from 'mongodb';
 import { getTenantCollections } from '../../config/db.js';
 import {
-  buildNotFoundError,
-  buildConflictError,
-  buildValidationError,
-  asyncHandler
+    asyncHandler, buildNotFoundError, buildValidationError, ConflictError
 } from '../../middleware/errorHandler.js';
+import attendanceAuditService from '../../services/audit/attendanceAudit.service.js';
 import {
-  sendSuccess,
-  sendCreated,
-  buildPagination,
-  extractUser
+    buildPagination,
+    extractUser, sendCreated, sendSuccess
 } from '../../utils/apiResponse.js';
-import { getSocketIO, broadcastAttendanceEvents } from '../../utils/socketBroadcaster.js';
 import {
-  generateAttendanceReport,
-  generateEmployeeAttendanceReport,
-  convertToCSV,
-  convertToExcel,
-  convertToPDF
+    convertToCSV,
+    convertToExcel,
+    convertToPDF, generateAttendanceReport,
+    generateEmployeeAttendanceReport
 } from '../../utils/attendanceReportGenerator.js';
-import { devLog, devDebug, devWarn, devError } from '../../utils/logger.js';
+import { devError, devLog } from '../../utils/logger.js';
+import { broadcastAttendanceEvents, getSocketIO } from '../../utils/socketBroadcaster.js';
+
+/**
+ * Helper: Sanitize input string to prevent XSS
+ */
+const sanitizeInput = (str) => {
+  if (typeof str !== 'string') return str;
+  return str
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/\//g, '&#x2F;')
+    .trim();
+};
 
 /**
  * Helper: Get employee by clerk user ID
@@ -140,6 +149,22 @@ export const getAttendanceById = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Attendance record', id);
   }
 
+  // Phase 3 - Security Fix: Authorization check (IDOR prevention)
+  const userRole = user.role?.toLowerCase();
+  const isPrivileged = ['admin', 'hr', 'superadmin'].includes(userRole);
+
+  // Get employee record for current user
+  const currentEmployee = await getEmployeeByClerkId(collections, user.userId);
+  const currentEmployeeId = currentEmployee?.employeeId;
+
+  // Users can only view their own attendance unless they are privileged
+  if (!isPrivileged && attendance.employeeId !== currentEmployeeId) {
+    return res.status(403).json({
+      success: false,
+      error: 'You do not have permission to view this attendance record'
+    });
+  }
+
   return sendSuccess(res, attendance);
 });
 
@@ -172,7 +197,7 @@ export const createAttendance = asyncHandler(async (req, res) => {
     });
   }
 
-  // Check if already clocked in today
+  // Check if already clocked in today (Phase 2 - High Priority Fix: Prevent duplicate attendance)
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
@@ -187,8 +212,46 @@ export const createAttendance = asyncHandler(async (req, res) => {
     isDeleted: { $ne: true }
   });
 
-  if (existingAttendance && existingAttendance.clockIn?.time && !existingAttendance.clockOut?.time) {
-    throw buildConflictError('Already clocked in today. Please clock out first.');
+  if (existingAttendance) {
+    // Special case: If on leave, update the record instead of creating new
+    if (existingAttendance.status === 'on-leave') {
+      // Employee is clocking in while on leave - update the record
+      const updateObj = {
+        status: 'present',
+        clockIn: {
+          time: attendanceData.clockIn?.time || new Date(),
+          location: attendanceData.clockIn?.location || { type: 'office' },
+          notes: attendanceData.clockIn?.notes || ''
+        },
+        updatedAt: new Date()
+      };
+
+      const result = await collections.attendance.updateOne(
+        { _id: existingAttendance._id },
+        { $set: updateObj }
+      );
+
+      if (result.matchedCount === 0) {
+        throw buildNotFoundError('Attendance record', existingAttendance._id.toString());
+      }
+
+      const updatedAttendance = await collections.attendance.findOne({ _id: existingAttendance._id });
+
+      // Broadcast Socket.IO event
+      const io = getSocketIO(req);
+      if (io) {
+        broadcastAttendanceEvents.updated(io, user.companyId, updatedAttendance);
+        broadcastAttendanceEvents.clockIn(io, user.companyId, updatedAttendance);
+      }
+
+      return sendCreated(res, updatedAttendance, 'Clocked in successfully (updated from on-leave)');
+    }
+
+    // Regular case: Attendance already exists for this date
+    if (existingAttendance.clockIn?.time && !existingAttendance.clockOut?.time) {
+      throw new ConflictError('Already clocked in today. Please clock out first.');
+    }
+    throw new ConflictError('Attendance record already exists for this date. Please update the existing record.');
   }
 
   // Prepare attendance data
@@ -219,6 +282,24 @@ export const createAttendance = asyncHandler(async (req, res) => {
 
   // Get created attendance
   const attendance = await collections.attendance.findOne({ _id: result.insertedId });
+
+  // Phase 3: Log audit entry for attendance creation
+  try {
+    await attendanceAuditService.logAttendanceCreation(
+      user.companyId,
+      attendance.attendanceId,
+      user.userId,
+      {
+        employeeId: attendance.employeeId,
+        record: attendance,
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent']
+      }
+    );
+  } catch (auditError) {
+    // Log error but don't fail the request
+    devError('[Attendance] Failed to log audit entry:', auditError);
+  }
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -258,14 +339,28 @@ export const updateAttendance = asyncHandler(async (req, res) => {
     throw buildNotFoundError('Attendance record', id);
   }
 
+  // Phase 3 - Security Fix: Authorization check (IDOR prevention)
+  const userRole = user.role?.toLowerCase();
+  const isPrivileged = ['admin', 'hr', 'superadmin'].includes(userRole);
+  const currentEmployee = await getEmployeeByClerkId(collections, user.userId);
+  const currentEmployeeId = currentEmployee?.employeeId;
+
+  // Users can only update their own attendance unless they are privileged
+  if (!isPrivileged && attendance.employeeId !== currentEmployeeId) {
+    return res.status(403).json({
+      success: false,
+      error: 'You do not have permission to update this attendance record'
+    });
+  }
+
   // Check if clocked in
   if (!attendance.clockIn || !attendance.clockIn.time) {
-    throw buildConflictError('Not clocked in yet');
+    throw new ConflictError('Not clocked in yet');
   }
 
   // Check if already clocked out
   if (attendance.clockOut && attendance.clockOut.time) {
-    throw buildConflictError('Already clocked out');
+    throw new ConflictError('Already clocked out');
   }
 
   // If clock-out data provided, set it
@@ -297,7 +392,7 @@ export const updateAttendance = asyncHandler(async (req, res) => {
     const clockOutTime = new Date(updateObj.clockOut.time);
     const breakDuration = updateObj.breakDuration || 0;
     const workDuration = clockOutTime - clockInTime - (breakDuration * 60 * 1000);
-    updateObj.workHours = Math.max(0, workDuration / (60 * 60 * 1000)); // in hours
+    updateObj.hoursWorked = Math.max(0, workDuration / (60 * 60 * 1000)); // in hours
   }
 
   const result = await collections.attendance.updateOne(
@@ -311,6 +406,24 @@ export const updateAttendance = asyncHandler(async (req, res) => {
 
   // Get updated attendance
   const updatedAttendance = await collections.attendance.findOne({ _id: new ObjectId(id) });
+
+  // Phase 3: Log audit entry for attendance update
+  try {
+    await attendanceAuditService.logAttendanceUpdate(
+      user.companyId,
+      attendance.attendanceId || id,
+      user.userId,
+      attendance,
+      updatedAttendance,
+      {
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.headers['user-agent']
+      }
+    );
+  } catch (auditError) {
+    // Log error but don't fail the request
+    devError('[Attendance] Failed to log audit entry:', auditError);
+  }
 
   // Broadcast Socket.IO event
   const io = getSocketIO(req);
@@ -363,6 +476,20 @@ export const deleteAttendance = asyncHandler(async (req, res) => {
 
   if (result.matchedCount === 0) {
     throw buildNotFoundError('Attendance record', id);
+  }
+
+  // Phase 3: Log audit entry for attendance deletion
+  try {
+    await attendanceAuditService.logAttendanceDeletion(
+      user.companyId,
+      attendance.attendanceId || id,
+      user.userId,
+      attendance,
+      req.body.reason || 'Deleted by admin'
+    );
+  } catch (auditError) {
+    // Log error but don't fail the request
+    devError('[Attendance] Failed to log audit entry:', auditError);
   }
 
   // Broadcast Socket.IO event
@@ -445,14 +572,35 @@ export const getAttendanceByDateRange = asyncHandler(async (req, res) => {
 
   devLog('[Attendance Controller] getAttendanceByDateRange - companyId:', user.companyId);
 
+  // Phase 3: Validate date range
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  // Check if dates are valid
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    throw buildValidationError('startDate/endDate', 'Invalid date format');
+  }
+
+  // Check if start date is before end date
+  if (start > end) {
+    throw buildValidationError('startDate/endDate', 'Start date must be before end date');
+  }
+
+  // Phase 3: Limit date range to prevent DoS (max 1 year)
+  const maxRangeMs = 365 * 24 * 60 * 60 * 1000; // 1 year in milliseconds
+  const rangeMs = end.getTime() - start.getTime();
+  if (rangeMs > maxRangeMs) {
+    throw buildValidationError('startDate/endDate', 'Date range cannot exceed 1 year');
+  }
+
   // Get tenant collections
   const collections = getTenantCollections(user.companyId);
 
   // Build filter
   const filter = {
     date: {
-      $gte: new Date(startDate),
-      $lte: new Date(endDate)
+      $gte: start,
+      $lte: end
     },
     isDeleted: { $ne: true }
   };
@@ -460,7 +608,7 @@ export const getAttendanceByDateRange = asyncHandler(async (req, res) => {
   const total = await collections.attendance.countDocuments(filter);
 
   const pageNum = parseInt(page) || 1;
-  const limitNum = parseInt(limit) || 31;
+  const limitNum = Math.min(parseInt(limit) || 31, 365); // Also cap limit
   const skip = (pageNum - 1) * limitNum;
 
   const attendance = await collections.attendance
@@ -572,7 +720,7 @@ export const getAttendanceStats = asyncHandler(async (req, res) => {
   const total = allAttendance.length;
 
   // Calculate total hours worked
-  const totalHoursWorked = allAttendance.reduce((sum, a) => sum + (a.workHours || 0), 0);
+  const totalHoursWorked = allAttendance.reduce((sum, a) => sum + (a.hoursWorked || 0), 0);
 
   const stats = {
     total,
@@ -767,13 +915,13 @@ export const requestRegularization = asyncHandler(async (req, res) => {
     const userRole = user.role?.toLowerCase();
     const isAdmin = userRole === 'admin' || userRole === 'hr' || userRole === 'superadmin';
     if (!isAdmin) {
-      throw buildConflictError('You can only request regularization for your own attendance');
+      throw new ConflictError('You can only request regularization for your own attendance');
     }
   }
 
   // Check if regularization already requested
   if (attendance.regularizationRequest?.requested) {
-    throw buildConflictError('Regularization already requested for this attendance');
+    throw new ConflictError('Regularization already requested for this attendance');
   }
 
   // Create regularization request
@@ -837,7 +985,7 @@ export const approveRegularization = asyncHandler(async (req, res) => {
 
   // Check if regularization is requested
   if (!attendance.regularizationRequest?.requested) {
-    throw buildConflictError('No regularization request found for this attendance');
+    throw new ConflictError('No regularization request found for this attendance');
   }
 
   // Approve regularization
@@ -905,7 +1053,7 @@ export const rejectRegularization = asyncHandler(async (req, res) => {
 
   // Check if regularization is requested
   if (!attendance.regularizationRequest?.requested) {
-    throw buildConflictError('No regularization request found for this attendance');
+    throw new ConflictError('No regularization request found for this attendance');
   }
 
   // Reject regularization

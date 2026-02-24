@@ -1,13 +1,15 @@
 import dayjs from "dayjs";
 import isBetween from "dayjs/plugin/isBetween";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import CollapseHeader from "../../../../core/common/collapse-header/collapse-header";
 import CommonSelect from "../../../../core/common/commonSelect";
 import Footer from "../../../../core/common/footer";
 import { useAuth } from "../../../../hooks/useAuth";
 import { useLeaveREST, type Leave } from "../../../../hooks/useLeaveREST";
+import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { all_routes } from "../../../router/all_routes";
+import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
 
 // Extend dayjs with plugins
 dayjs.extend(isBetween);
@@ -22,6 +24,20 @@ interface LeaveEvent {
 const LeaveCalendar = () => {
   const { leaves, loading, fetchLeaves, fetchMyLeaves, leaveTypeDisplayMap } = useLeaveREST();
   const { role, userId } = useAuth();
+  const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
+
+  // Auto-reload hook for refetching data
+  const { refetchAfterAction } = useAutoReloadActions({
+    fetchFn: () => {
+      // Fetch based on role - managers see team leaves, employees see their own
+      if (role === 'manager' || role === 'hr' || role === 'admin' || role === 'superadmin') {
+        fetchLeaves({ limit: 1000 });
+      } else {
+        fetchMyLeaves({ limit: 1000 });
+      }
+    },
+    debug: false, // Calendar doesn't need verbose logging
+  });
 
   // Calendar state
   const [currentDate, setCurrentDate] = useState(dayjs());
@@ -38,6 +54,7 @@ const LeaveCalendar = () => {
     } else {
       fetchMyLeaves({ limit: 1000 });
     }
+    fetchActiveLeaveTypes();
   }, []);
 
   // Leave type colors
@@ -149,15 +166,11 @@ const LeaveCalendar = () => {
   const calendarDays = getCalendarDays();
   const currentMonthStart = currentDate.startOf('month');
 
-  // Filter options
-  const leaveTypeOptions = [
+  // Dynamic leave type filter options built from active leave types in database
+  const leaveTypeOptions = useMemo(() => [
     { value: 'all', label: 'All Types' },
-    { value: 'sick', label: 'Medical Leave' },
-    { value: 'casual', label: 'Casual Leave' },
-    { value: 'earned', label: 'Annual Leave' },
-    { value: 'maternity', label: 'Maternity' },
-    { value: 'paternity', label: 'Paternity' },
-  ];
+    ...activeOptions.map(option => ({ value: option.value.toLowerCase(), label: String(option.label) })),
+  ], [activeOptions]);
 
   const statusOptions = [
     { value: 'all', label: 'All Status' },
@@ -304,7 +317,7 @@ const LeaveCalendar = () => {
                             <div
                               key={idx}
                               className="event-dot"
-                              title={`${leaveTypeDisplayMap[event.leave.leaveType] || event.leave.leaveType} - ${event.leave.status}`}
+                              title={`${event.leave.leaveTypeName || leaveTypeDisplayMap[event.leave.leaveType] || event.leave.leaveType} - ${event.leave.status}`}
                               style={{
                                 backgroundColor: event.backgroundColor,
                                 borderColor: event.borderColor,
@@ -368,7 +381,7 @@ const LeaveCalendar = () => {
                               }}
                             >
                               <div className="event-type">
-                                {leaveTypeDisplayMap[event.leave.leaveType]?.substring(0, 15) || event.leave.leaveType}
+                                {event.leave.leaveTypeName?.substring(0, 15) || leaveTypeDisplayMap[event.leave.leaveType]?.substring(0, 15) || event.leave.leaveType}
                               </div>
                               <div className="event-details">
                                 <div className="event-employee">
@@ -425,7 +438,7 @@ const LeaveCalendar = () => {
                               <div className="d-flex justify-content-between align-items-start mb-2">
                                 <div>
                                   <h6 className="mb-1">
-                                    {leaveTypeDisplayMap[event.leave.leaveType] || event.leave.leaveType}
+                                    {event.leave.leaveTypeName || leaveTypeDisplayMap[event.leave.leaveType] || event.leave.leaveType}
                                   </h6>
                                   <p className="mb-0">
                                     <strong>{event.leave.employeeName || 'Employee'}</strong>

@@ -1,3 +1,4 @@
+import { useUser } from "@clerk/clerk-react";
 import { DatePicker, message, Spin } from "antd";
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -9,8 +10,9 @@ import Footer from "../../../../core/common/footer";
 import ImageWithBasePath from "../../../../core/common/imageWithBasePath";
 import LeaveDetailsModal from "../../../../core/modals/LeaveDetailsModal";
 import { useAuth } from "../../../../hooks/useAuth";
+import { useAutoReloadActions } from "../../../../hooks/useAutoReload";
 import { useEmployeesREST } from "../../../../hooks/useEmployeesREST";
-import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveType } from "../../../../hooks/useLeaveREST";
+import { statusDisplayMap, useLeaveREST, type LeaveStatus, type LeaveTypeCode } from "../../../../hooks/useLeaveREST";
 import { useLeaveTypesREST } from "../../../../hooks/useLeaveTypesREST";
 import { all_routes } from "../../../router/all_routes";
 
@@ -54,7 +56,7 @@ const StatusBadge = ({ status }: { status: LeaveStatus }) => {
 
 // Leave type badge component
 const LeaveTypeBadge = ({ leaveType, onViewDetails, leaveTypeDisplayMap }: { leaveType: string; onViewDetails?: () => void; leaveTypeDisplayMap: Record<string, string> }) => {
-  const displayType = leaveTypeDisplayMap[leaveType] || leaveType;
+  const displayType = leaveTypeDisplayMap[leaveType?.toLowerCase?.()] || leaveType;
   return (
     <span className="fs-14 fw-medium d-flex align-items-center">
       {displayType}
@@ -111,7 +113,34 @@ const LeaveAdmin = () => {
   const { leaves, loading, fetchLeaves, approveLeave, rejectLeave, managerActionLeave, deleteLeave, pagination, createLeave, updateLeave, fetchStats, leaveTypeDisplayMap } = useLeaveREST();
   const { activeOptions, fetchActiveLeaveTypes } = useLeaveTypesREST();
   const { employees, fetchEmployees } = useEmployeesREST();
-  const { role } = useAuth();
+  const { user: clerkUser } = useUser();
+  const { role, employeeId: currentEmployeeId } = useAuth();
+
+  // Returns true when the current HR user is also the assigned reporting manager for a leave.
+  // Primary check: employeeId from Clerk metadata matches the leave's reportingManagerId.
+  // Fallback check: full name match when employeeId is not yet set in Clerk metadata.
+  // (Security is always enforced by the backend; this only controls UI visibility.)
+  const isHRActingAsManager = (leave: any): boolean => {
+    if (role !== 'hr') return false;
+    if (currentEmployeeId && leave?.reportingManagerId === currentEmployeeId) return true;
+    // Fallback: case-insensitive name match (when employeeId not stored in Clerk publicMetadata)
+    if (!currentEmployeeId && clerkUser?.fullName && leave?.reportingManagerName) {
+      return leave.reportingManagerName.trim().toLowerCase() === clerkUser.fullName.trim().toLowerCase();
+    }
+    return false;
+  };
+
+  // Returns true when the current user is allowed to approve/reject a leave
+  const canApproveRejectLeave = (leave: any) =>
+    role !== 'hr' || isHRActingAsManager(leave) || !!leave?.isHRFallback;
+
+  // Auto-reload hook for refetching after actions
+  const { refetchAfterAction } = useAutoReloadActions({
+    fetchFn: () => {
+      fetchLeaves(filters);
+    },
+    debug: true,
+  });
 
   // Stats state from API
   const [stats, setStats] = useState<{
@@ -131,7 +160,7 @@ const LeaveAdmin = () => {
   // Local state for filters
   const [filters, setFilters] = useState<{
     status?: LeaveStatus;
-    leaveType?: LeaveType;
+    leaveType?: LeaveTypeCode;
     page: number;
     limit: number;
   }>({
@@ -147,10 +176,12 @@ const LeaveAdmin = () => {
     show: boolean;
     leaveId: string | null;
     reason: string;
+    isManagerAction: boolean;
   }>({
     show: false,
     leaveId: null,
-    reason: ''
+    reason: '',
+    isManagerAction: false,
   });
 
   // Form state for Add Leave modal
@@ -252,6 +283,7 @@ const LeaveAdmin = () => {
       Role: "Employee",
       ReportingManager: leave.reportingManagerName || "-",
       LeaveType: leave.leaveType,
+      LeaveTypeName: leave.leaveTypeName, // Display name from backend (ObjectId system)
       From: formatDate(leave.startDate),
       To: formatDate(leave.endDate),
       NoOfDays: `${leave.duration} Day${leave.duration > 1 ? 's' : ''}`,
@@ -275,11 +307,12 @@ const LeaveAdmin = () => {
       return;
     }
 
-    const success = role === 'manager'
+    const useManagerAction = role === 'manager' || isHRActingAsManager(leave);
+    const success = useManagerAction
       ? await managerActionLeave(id, 'approved', undefined, 'Approved')
       : await approveLeave(id, "Approved");
     if (success) {
-      fetchLeaves(filters); // Refresh list
+      refetchAfterAction(); // Refresh list and stats
     }
   };
 
@@ -292,24 +325,25 @@ const LeaveAdmin = () => {
     setRejectModal({
       show: true,
       leaveId,
-      reason: ''
+      reason: '',
+      isManagerAction: role === 'manager' || isHRActingAsManager(leave),
     });
   };
 
   const handleRejectConfirm = async () => {
     if (rejectModal.leaveId && rejectModal.reason.trim()) {
-      const success = role === 'manager'
+      const success = rejectModal.isManagerAction
         ? await managerActionLeave(rejectModal.leaveId, 'rejected', rejectModal.reason)
         : await rejectLeave(rejectModal.leaveId, rejectModal.reason);
       if (success) {
-        fetchLeaves(filters); // Refresh list
+        refetchAfterAction(); // Refresh list and stats
       }
-      setRejectModal({ show: false, leaveId: null, reason: '' });
+      setRejectModal({ show: false, leaveId: null, reason: '', isManagerAction: false });
     }
   };
 
   const handleRejectCancel = () => {
-    setRejectModal({ show: false, leaveId: null, reason: '' });
+    setRejectModal({ show: false, leaveId: null, reason: '', isManagerAction: false });
   };
 
   const closeLeaveDetailsModal = () => {
@@ -325,7 +359,7 @@ const LeaveAdmin = () => {
     if (window.confirm("Are you sure you want to delete this leave request?")) {
       const success = await deleteLeave(leaveId);
       if (success) {
-        fetchLeaves(filters); // Refresh list
+        refetchAfterAction(); // Refresh list and stats
       }
     }
   };
@@ -388,8 +422,8 @@ const LeaveAdmin = () => {
         const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
         if (modal) modal.hide();
       }
-      // Refresh data
-      fetchLeaves(filters);
+      // Refresh data using auto-reload
+      refetchAfterAction();
     }
   };
 
@@ -458,8 +492,8 @@ const LeaveAdmin = () => {
         const modal = (window as any).bootstrap.Modal.getInstance(modalEl);
         if (modal) modal.hide();
       }
-      // Refresh data
-      fetchLeaves(filters);
+      // Refresh data using auto-reload
+      refetchAfterAction();
     }
   };
 
@@ -520,14 +554,27 @@ const LeaveAdmin = () => {
     {
       title: "Leave Type",
       dataIndex: "LeaveType",
-      render: (_: string, record: any) => (
-        <LeaveTypeBadge
-          leaveType={record.LeaveType}
-          onViewDetails={() => setSelectedLeave(record.rawLeave)}
-          leaveTypeDisplayMap={leaveTypeDisplayMap}
-        />
-      ),
-      sorter: (a: any, b: any) => a.LeaveType.length - b.LeaveType.length,
+      render: (_: string, record: any) => {
+        // Use leaveTypeName from backend (ObjectId system) with fallback to map for backward compatibility
+        const displayName = record.LeaveTypeName || leaveTypeDisplayMap[record.LeaveType?.toLowerCase?.()] || record.LeaveType;
+        return (
+          <span className="fs-14 fw-medium d-flex align-items-center">
+            {displayName}
+            <Link
+              to="#"
+              className="ms-2"
+              data-bs-toggle="modal"
+              data-bs-target="#view_leave_details"
+              onClick={() => setSelectedLeave(record.rawLeave)}
+              data-bs-placement="right"
+              title="View leave details"
+            >
+              <i className="ti ti-info-circle text-info" />
+            </Link>
+          </span>
+        );
+      },
+      sorter: (a: any, b: any) => (a.LeaveTypeName || '').localeCompare(b.LeaveTypeName || ''),
     },
     {
       title: "Reporting Manager",
@@ -610,7 +657,7 @@ const LeaveAdmin = () => {
       dataIndex: "actions",
       render: (_: any, record: any) => (
         <div className="action-icon d-inline-flex">
-          {record.Status === 'pending' && role !== 'hr' && (
+          {record.Status === 'pending' && canApproveRejectLeave(record.rawLeave) && (
             <>
               <Link
                 to="#"
@@ -670,13 +717,12 @@ const LeaveAdmin = () => {
     },
   ];
 
-  // Dropdown options with proper backend values
-  const leavetype = [
+  // Dynamic leave type filter options built from active leave types in database
+  // Use ObjectId (value) for filtering - backend supports both leaveType (legacy) and leaveTypeId (new)
+  const leaveTypeFilterOptions = useMemo(() => [
     { value: "", label: "All Types" },
-    { value: "sick", label: "Medical Leave" },
-    { value: "casual", label: "Casual Leave" },
-    { value: "earned", label: "Annual Leave" },
-  ];
+    ...activeOptions.map(option => ({ value: option.value, label: String(option.label) })),
+  ], [activeOptions]);
 
   const statusOptions = [
     { value: "", label: "All Status" },
@@ -693,20 +739,20 @@ const LeaveAdmin = () => {
   ], []);
 
   const leaveTypeOptions = useMemo(() => {
-    const fallbackOptions = Object.entries(leaveTypeDisplayMap).map(([value, label]) => ({ value, label }));
+    // Use activeOptions directly - value is now ObjectId (from backend), label is display name
     const apiOptions = activeOptions.length
-      ? activeOptions.map(option => ({ value: option.value.toLowerCase(), label: String(option.label) }))
-      : fallbackOptions;
+      ? activeOptions.map(option => ({ value: option.value, label: String(option.label) }))
+      : [];
     return [{ value: "", label: "Select Leave Type" }, ...apiOptions];
-  }, [activeOptions, leaveTypeDisplayMap]);
+  }, [activeOptions]);
 
   // Filter handlers
   const handleStatusFilter = (status: LeaveStatus) => {
     setFilters(prev => ({ ...prev, status, page: 1 }));
   };
 
-  const handleLeaveTypeFilter = (leaveType: LeaveType) => {
-    setFilters(prev => ({ ...prev, leaveType, page: 1 }));
+  const handleLeaveTypeFilter = (leaveTypeId: string) => {
+    setFilters(prev => ({ ...prev, leaveTypeId, leaveType: undefined, page: 1 }));
   };
 
   // Stats are now fetched from API via fetchStats()
@@ -885,12 +931,12 @@ const LeaveAdmin = () => {
                     Leave Type
                   </Link>
                   <ul className="dropdown-menu dropdown-menu-end p-3">
-                    {leavetype.map(option => (
+                    {leaveTypeFilterOptions.map(option => (
                       <li key={option.value}>
                         <Link
                           to="#"
                           className="dropdown-item rounded-1"
-                          onClick={() => option.value && handleLeaveTypeFilter(option.value as LeaveType)}
+                          onClick={() => handleLeaveTypeFilter(option.value)}
                         >
                           {option.label}
                         </Link>
@@ -997,7 +1043,7 @@ const LeaveAdmin = () => {
                       <CommonSelect
                         className="select"
                         options={leaveTypeOptions}
-                        value={addFormData.leaveType}
+                        value={leaveTypeOptions.find(opt => opt.value === addFormData.leaveType)?.value || addFormData.leaveType}
                         onChange={(option: any) => setAddFormData({ ...addFormData, leaveType: option?.value || '' })}
                       />
                     </div>
@@ -1439,7 +1485,7 @@ const LeaveAdmin = () => {
                   <div className="col-sm-6">
                     <p className="text-muted text-uppercase fs-12 mb-1">Leave Type</p>
                     <div className="fw-semibold text-dark">
-                      {selectedLeave ? (leaveTypeDisplayMap[selectedLeave.leaveType] || selectedLeave.leaveType) : "-"}
+                      {selectedLeave ? (leaveTypeDisplayMap[selectedLeave.leaveType?.toLowerCase?.()] || selectedLeave.leaveType) : "-"}
                     </div>
                   </div>
                   <div className="col-sm-6">
@@ -1490,7 +1536,7 @@ const LeaveAdmin = () => {
               >
                 Close
               </button>
-              {selectedLeave?.status === 'pending' && (
+              {(selectedLeave?.finalStatus || selectedLeave?.status) === 'pending' && canApproveRejectLeave(selectedLeave) && (
                 <>
                   <button
                     type="button"

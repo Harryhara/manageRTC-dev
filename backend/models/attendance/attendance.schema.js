@@ -276,6 +276,14 @@ attendanceSchema.index({ date: 1, status: 1, isDeleted: 1 });
 // Phase 2.1: Added missing compound indexes for better query performance
 attendanceSchema.index({ employee: 1, date: 1, isDeleted: 1 });
 attendanceSchema.index({ companyId: 1, status: 1, isDeleted: 1 });
+// Phase 2: Additional indexes for attendance sync queries and lookups
+attendanceSchema.index({ companyId: 1, employeeId: 1, status: 1 });
+attendanceSchema.index({ companyId: 1, employeeId: 1, date: 1 });
+attendanceSchema.index({ companyId: 1, employeeId: 1, isDeleted: 1 });
+attendanceSchema.index({ companyId: 1, leaveId: 1 });
+attendanceSchema.index({ leaveId: 1, isDeleted: 1 });
+// Unique index to prevent duplicate attendance per employee per day (Phase 2 - High Priority Fix)
+attendanceSchema.index({ companyId: 1, employeeId: 1, date: 1 }, { unique: true, sparse: true });
 
 // Virtual for total duration
 attendanceSchema.virtual('totalDuration').get(function() {

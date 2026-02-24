@@ -278,14 +278,14 @@ import Permission from '../userManagement/permission';
 import RolesPermissions from '../userManagement/rolesPermissions';
 
 import Invoices from '../finance-accounts/sales/invoices';
-import AttendanceEmployee from '../hrm/attendance/attendance_employee';
 import AttendanceAdmin from '../hrm/attendance/attendanceadmin';
+import AttendanceEmployee from '../hrm/attendance/attendance_employee';
 import BatchesList from '../hrm/attendance/batchesList';
 import LeaveAdmin from '../hrm/attendance/leaves/leaveAdmin';
-import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
-import LeaveManager from '../hrm/attendance/leaves/leaveManager';
 import LeaveCalendar from '../hrm/attendance/leaves/leaveCalendar';
+import LeaveEmployee from '../hrm/attendance/leaves/leaveEmployee';
 import LeaveLedger from '../hrm/attendance/leaves/leaveLedger';
+import LeaveManager from '../hrm/attendance/leaves/leaveManager';
 import LeaveSettings from '../hrm/attendance/leaves/leavesettings';
 import OverTime from '../hrm/attendance/overtime';
 import ScheduleTiming from '../hrm/attendance/scheduletiming';
@@ -1051,19 +1051,19 @@ export const publicRoutes = [
     path: routes.tickets,
     element: <Tickets />,
     route: Route,
-    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.ticketGrid,
     element: <TicketGrid />,
     route: Route,
-    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.ticketDetails,
     element: <TicketDetails />,
     route: Route,
-    roles: ['admin', 'hr', 'manager', 'leads', 'superadmin'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'leads', 'superadmin'],
   },
   {
     path: routes.performanceIndicator,
@@ -1075,7 +1075,7 @@ export const publicRoutes = [
     path: routes.holidays,
     element: <Holidays />,
     route: Route,
-    roles: ['admin', 'hr', 'superadmin'],
+    roles: ['admin', 'hr', 'superadmin', 'employee', 'manager'],
   },
   {
     path: routes.performanceReview,
@@ -1105,7 +1105,7 @@ export const publicRoutes = [
     path: routes.trainingList,
     element: <TrainingList />,
     route: Route,
-    roles: ['admin', 'hr', 'superadmin'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.trainers,
@@ -1817,7 +1817,7 @@ export const publicRoutes = [
     path: routes.policy,
     element: <Policy />,
     route: Route,
-    roles: ['admin', 'hr', 'superadmin'],
+    roles: ['admin', 'hr', 'superadmin', 'employee', 'manager'],
   },
   {
     path: routes.leaveadmin,
@@ -1871,7 +1871,7 @@ export const publicRoutes = [
     path: routes.timesheet,
     element: <TimeSheet />,
     route: Route,
-    roles: ['admin', 'hr', 'superadmin'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.scheduletiming,
@@ -1883,7 +1883,7 @@ export const publicRoutes = [
     path: routes.overtime,
     element: <OverTime />,
     route: Route,
-    roles: ['admin', 'hr', 'superadmin'],
+    roles: ['employee', 'admin', 'hr', 'manager', 'superadmin'],
   },
   {
     path: routes.shiftsManagement,

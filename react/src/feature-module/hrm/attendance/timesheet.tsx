@@ -1,17 +1,14 @@
-import React, { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
-import { all_routes } from "../../router/all_routes";
-import PredefinedDateRanges from "../../../core/common/datePicker";
-import Table from "../../../core/common/dataTable/index";
-import ImageWithBasePath from "../../../core/common/imageWithBasePath";
-import CommonSelect from "../../../core/common/commonSelect";
-import { DatePicker, TimePicker, message } from "antd";
-import { OverlayTrigger, Tooltip } from "react-bootstrap";
-import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
-import Footer from "../../../core/common/footer";
+import { DatePicker, message } from "antd";
 import dayjs from "dayjs";
-import { useTimeTrackingREST, TimeEntry } from "../../../hooks/useTimeTrackingREST";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import CollapseHeader from "../../../core/common/collapse-header/collapse-header";
+import Table from "../../../core/common/dataTable/index";
+import Footer from "../../../core/common/footer";
+import ImageWithBasePath from "../../../core/common/imageWithBasePath";
+import { useAuth } from "../../../hooks/useAuth";
 import { useProjectsREST } from "../../../hooks/useProjectsREST";
+import { TimeEntry, useTimeTrackingREST } from "../../../hooks/useTimeTrackingREST";
 
 interface FormData {
   projectId: string;
@@ -24,12 +21,18 @@ interface FormData {
 }
 
 const TimeSheet = () => {
+  // Role-based access control
+  const { role, employeeId } = useAuth();
+  const isEmployeeOrManager = ['employee', 'manager'].includes(role);
+  const canManageTimesheet = ['admin', 'hr', 'superadmin'].includes(role);
+
   // API Hooks
   const {
     timeEntries,
     loading,
     error,
     fetchTimeEntries,
+    getTimeEntriesByUser,
     createTimeEntry,
     updateTimeEntry,
     deleteTimeEntry
@@ -55,8 +58,14 @@ const TimeSheet = () => {
   // Fetch data on mount
   useEffect(() => {
     fetchProjects();
-    fetchTimeEntries({ page: 1, limit: 50, ...dateRange });
-  }, [dateRange]);
+    if (isEmployeeOrManager && employeeId) {
+      // Employees/Managers see only their own time entries
+      getTimeEntriesByUser(employeeId, { page: 1, limit: 50, ...dateRange });
+    } else {
+      // Admin/HR see all time entries
+      fetchTimeEntries({ page: 1, limit: 50, ...dateRange });
+    }
+  }, [dateRange, isEmployeeOrManager, employeeId]);
 
   // Build table columns
   const columns = [
